@@ -1,0 +1,611 @@
+/* ============================================================
+   2027 沖繩五天四夜（跨世代家庭・不自駕）— 資料庫
+   價格說明：以 100日圓 ≈ NT$21 換算（2026年中匯率概估），
+   為估算平均價格範圍，實際以現場與當日匯率為準。
+   營業時間與公休日為整理時的通則，出發前請以官方公告再確認。
+   ============================================================ */
+
+const CONFIG = {
+  baseUrl: 'https://kenhuangads.github.io/travel-tool/',
+  build: '20260818b',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
+  rateNote: '價格換算基準：100日圓 ≈ NT$21（2026年中匯率概估）。所有金額為估算平均範圍，實際以現場與當日匯率為準。',
+  minSpots: 3,
+  minFoods: 6,
+  mealGap: 210,   // 兩頓正餐至少間隔 3.5 小時（不含咖啡、甜點、小吃）
+  lightMealStay: 40, // 停留少於這個分鐘數的餐＝外帶輕食（飯糰、冰淇淋），只算半個間隔
+  batchGrace: 25, // 出爐後多久內到還買得到（超過就當賣完，排程改對齊下一批）
+  /* 回飯店門禁：平常 21:30 前到家；當天有跑到 20 公里外的遠程景點（北部／中部包車日）才放寬到 22:00 */
+  curfew: { normal: 1290, far: 1320, farKm: 20 },
+  /* 包車設定：10人座海獅（Hiace）・建議中文司機 */
+  charter: {
+    startMin: 510,            // 08:30 於飯店出發
+    baseMins: 600,            // 基準 10 小時
+    costNT: 10500,            // 約 50,000 日圓 ≈ NT$10,500（6人合計、每人約NT$1,750）
+    costTxt: '約 48,000-53,000 日圓 ≈ NT$10,100-11,100（10小時基準・6人合計，每人約NT$1,700-1,850）',
+    overTxt: '超時費約每 30 分 3,500 日圓（≈NT$735），以現金支付司機',
+    label: '10人座豐田海獅（建議中文司機）'
+  },
+  holidayNote: '1月下旬是沖繩全年最冷的時期（約14-20°C）：東北季風與海風強勁、體感偏涼，全員請帶「防風」外套與毛帽，執行洋蔥式穿搭。這也是全日本最早的櫻花季（本部八重岳櫻花祭約1/16起）與座頭鯨洄游季。1/24（日）回程日適逢國際通「步行者天國」封街（12:00-18:00 主街禁行汽車），叫車請避開國際通主街；第一牧志公設市場當天適逢每月第4個週日公休。',
+  trip: {
+    title: '2027 沖繩五天四夜',
+    dates: '2027/1/20（三）～ 1/24（日）',
+    outbound: { date: '2027/1/20（三）', from: '桃園國際機場', to: '那霸機場', airline: '航班以實際訂位為準' },
+    inbound:  { date: '2027/1/24（日）', from: '那霸機場', to: '桃園國際機場', airline: '航班以實際訂位為準',
+      note: '預設為示意時間；直接在頁面修改航班時間後，報到、接送與整份行程會自動重算。日本時間比台灣快 1 小時。' },
+    hotel: {
+      name: '嘉新酒店 Hotel Collective',
+      area: '國際通正中心（縣廳前站步行約7分）｜六大人定點住宿、不換飯店。年輕夫婦若分宿東急Stay那霸（旭橋・步行約12分）視同同一集合據點',
+      links: { g: 'ホテルコレクティブ 那覇', o: 'https://hotelcollective.jp/' }
+    }
+  }
+};
+
+const CLUSTERS = {
+  kokusai: { label: '國際通・牧志・市中心', color: '#d94f6e', short: '國際通' },
+  naha:    { label: '那霸深度・南部（首里・賞鯨・瀨長島）', color: '#2e9e6b', short: '那霸南部' },
+  north:   { label: '北部遠征（美麗海・八重岳櫻花）', color: '#1f7fc4', short: '北部', charter: true },
+  central: { label: '中部海岸（萬座毛・美國村）', color: '#e8833a', short: '中部', charter: true }
+};
+
+const FOOD_CATS = {
+  soba:    { label: '沖繩麵', icon: '🍜' },
+  yakiniku:{ label: '燒肉・和牛', icon: '🥩' },
+  agu:     { label: '阿古豬料理', icon: '🐷' },
+  izakaya: { label: '居酒屋・沖繩食堂', icon: '🏮' },
+  seafood: { label: '海鮮・市場食堂', icon: '🐟' },
+  steak:   { label: '牛排・洋食', icon: '🍴' },
+  burger:  { label: '美式・漢堡', icon: '🍔' },
+  cafe:    { label: '海景咖啡廳', icon: '☕' },
+  brunch:  { label: '早餐・輕食', icon: '🍳' },
+  dessert: { label: '甜點・冰品', icon: '🍰' },
+  ramen:   { label: '拉麵・宵夜', icon: '🍥' }
+};
+
+const SHOP_CATS = {
+  souvenir:  { label: '伴手禮甜點', icon: '🎁' },
+  food_local:{ label: '沖繩食品・調味', icon: '🥫' },
+  liquor:    { label: '泡盛・酒類', icon: '🍶' },
+  pharmacy:  { label: '藥妝・保健', icon: '💊' },
+  craft:     { label: '工藝・琉璃', icon: '🏺' },
+  fashion:   { label: '服飾・潮流', icon: '👕' },
+  grocery:   { label: '超市掃貨', icon: '🛒' }
+};
+
+/* ── 景點（15）───────────────────────────────
+   slot: morning / afternoon / evening / night */
+const SPOTS = [
+  { id:'s01', kind:'spot', name:'沖繩美麗海水族館', jp:'沖縄美ら海水族館', cluster:'north', area:'本部町・海洋博公園內（包車直達北口最近）', slot:'morning', est:460,
+    price:'成人 2,180円 ≈ NT$460／人（許田道之驛與 Klook/KKday 預售票約9折）',
+    desc:'世界級的黑潮之海大水槽：8.7公尺寬巨型壓克力幕牆，鯨鯊與鬼蝠魟成群同游，冬天躲進全室內展館看海最舒服，完美避開午後海風。海豚劇場、海牛館與海龜館在免費區域，時間充裕可一併看完。長輩以手扶梯與坡道動線為主、幾乎不用爬樓梯。',
+    plan: [
+      { mins: 25, icon: '🎫', label: '入館・往3F大海入口', note: '包車停北口P7停車場最近；動線由3F沿坡道一路往下逛，對長輩最省力' },
+      { mins: 60, icon: '🐋', label: '黑潮之海大水槽', note: '鯨鯊餵食解說多在 15:00／17:00（依官方當日公告），大水槽旁「黑潮探險」水上觀覽區時段限定開放' },
+      { mins: 45, icon: '🐬', label: '海豚劇場＆海牛館・海龜館（免費區）', note: '冬季場次以現場時刻表為準；海風大時長輩可只看室內館' },
+      { mins: 20, icon: '🛍', label: '紀念品店採買', note: '鯨鯊布偶與館內限定款這裡最齊' }
+    ],
+    planBack: '水族館北口',
+    planHours: '冬季（10-2月）開館 8:30-17:30、16:30 最終入館',
+    planNote: '門票先在許田道之驛或 Klook/KKday 買好可省一成；一開館入場人最少，鯨鯊餵食時段（15:00）人潮最多。',
+    tag:'鯨鯊大水槽・全室內', links:{ g: '沖縄美ら海水族館', o:'https://churaumi.okinawa/', kk:'沖繩美麗海水族館門票' } },
+  { id:'s02', kind:'spot', name:'本部八重岳櫻花祭', jp:'もとぶ八重岳桜まつり', cluster:'north', area:'本部町・八重岳（包車可直上山腰，免爬坡）', slot:'morning', est:0,
+    price:'免費入場（櫻花祭活動期間約1/16-2/1，依當年公告）',
+    desc:'日本最早開的櫻花祭：八重岳沿山道7,000株寒緋櫻由山頂往山腳綻放，艷粉桃紅的花色與本州淡雅的染井吉野截然不同。包車可沿櫻並木道直上山腰停車場，長輩下車即賞花，體力負擔最小。1月下旬正值花況前段，越往山頂花開越多。',
+    tag:'日本最早櫻花・期間限定', links:{ g: '八重岳桜の森公園', kk:'沖繩 櫻花' } },
+  { id:'s03', kind:'spot', name:'今歸仁城跡（櫻花名所）', jp:'今帰仁城跡', cluster:'north', area:'今歸仁村（美麗海車程約15分）', slot:'afternoon', est:125,
+    price:'成人 600円 ≈ NT$125／人',
+    desc:'世界遺產琉球王國城跡，蜿蜒石垣城牆氣勢磅礴，1月下旬城內寒緋櫻陸續開花，古城牆配櫻花是沖繩限定畫面。夜間點燈的「今歸仁城櫻花祭」歷年多在1月底才開始（如1/31-2/8），本行程期間以白天賞花為主。石階較多，長輩可走主要參道慢行。',
+    tag:'世界遺產×寒緋櫻', links:{ g: '今帰仁城跡', o:'https://www.nakijinjoseki-osi.jp/' } },
+  { id:'s04', kind:'spot', name:'古宇利大橋・古宇利島', jp:'古宇利大橋', cluster:'north', area:'今歸仁村～名護（跨海大橋）', slot:'afternoon', est:0,
+    price:'免費（海洋塔另計，成人約1,000円）',
+    desc:'全長1,960公尺的跨海大橋，兩側是沖繩數一數二的透明漸層海色，包車過橋到橋頭沙灘拍照、上島吃個蝦蝦飯或在海景咖啡稍歇即可折返，是北部路線最不費體力的順遊點。',
+    tag:'跨海大橋・順遊', links:{ g: '古宇利大橋' } },
+  { id:'s05', kind:'spot', name:'慶良間諸島賞鯨半日船', jp:'那覇発ホエールウォッチング', cluster:'naha', area:'那霸泊港出發（飯店計程車約8分）', slot:'morning', est:950,
+    price:'成人約 4,200-5,000円 ≈ NT$880-1,050／人（Klook/KKday 常有優惠）',
+    desc:'每年12月底至3月，座頭鯨洄游到慶良間諸島海域繁殖育幼，從泊港出海約40-60分即可近距離看到噴氣、舉尾與躍身擊浪，是冬季沖繩獨有的生命教育級體驗。多數業者提供「未見鯨魚免費再搭或退費」保證（依各家規定）。冬季海象顛簸，長輩請備暈船藥並選船身中段座位。',
+    plan: [
+      { mins: 30, icon: '🎫', label: '泊港報到・安全說明', note: '出航前30分報到；冬季海象由船公司當日清晨判定是否出航，取消會提前通知改期或退費' },
+      { mins: 40, icon: '🚢', label: '出海航向慶良間海域', note: '出發前30分服用暈船藥最有效；甲板風大，防風外套與毛帽必備' },
+      { mins: 80, icon: '🐋', label: '座頭鯨觀察', note: '各船以無線電共享鯨蹤；看到親子鯨的機率1-3月最高' },
+      { mins: 40, icon: '⛴', label: '返航回泊港', note: '回程可順路步行約7分到「泊いゆまち」魚市場吃海鮮丼' }
+    ],
+    planAnchor: 1,
+    planBack: '泊港',
+    planHours: '1-3月限定：多數業者每日兩班（約8:30與13:00出海），全程約3-3.5小時',
+    atNote: '預約的是「出航時間」（如8:30或13:00），報到須提前30分——上面的時間已把報到往前算進去。',
+    planNote: '建議排在旅程前段（Day 2-3），萬一因風浪停航還有改期餘地；訂 13:00 午班可以睡飽再出發，對長輩更友善。',
+    tag:'1-3月限定・需預約', links:{ g: '泊ふ頭北岸フェリーターミナル', kk:'沖繩 賞鯨' } },
+  { id:'s06', kind:'spot', name:'波上宮・波之上海灘', jp:'波上宮', cluster:'naha', flex:['naha','kokusai'], area:'那霸市若狹（飯店計程車約6分／步行約18分）', slot:'afternoon', est:0,
+    price:'免費參拜',
+    desc:'琉球八社之首，紅瓦社殿矗立在海崖上，是那霸市區唯一能同時拜神社、看海的地方。參拜後下到波之上海灘走走，冬天遊客少、更顯清幽。範圍不大，安排1小時內剛剛好，適合當行程之間的緩衝點。',
+    tag:'琉球八社之首・海崖神社', links:{ g: '波上宮' } },
+  { id:'s07', kind:'spot', name:'首里城公園', jp:'首里城公園', cluster:'naha', area:'首里（單軌首里站步行約15分／計程車約20分）', slot:'morning', est:85,
+    price:'有料區域成人 400円 ≈ NT$85／人（正殿復原期間票價，以官方公告為準）',
+    desc:'琉球王國政治與文化中心，2019年火災後的正殿復原工程接近完成（官方目標2026年秋重現），2027年初造訪有機會看到浴火重生的朱紅正殿。守禮門、園比屋武御嶽石門與城郭步道氣勢依舊，高處可眺望那霸市景。石階與坡道較多，長輩放慢速度、走主要參道即可。',
+    tag:'世界遺產・正殿復原重現', links:{ g: '首里城公園', o:'https://oki-park.jp/shurijo/' } },
+  { id:'s08', kind:'spot', name:'壺屋やちむん通り（陶器街）', jp:'壺屋やちむん通り', cluster:'naha', flex:['naha','kokusai'], area:'壺屋（國際通步行約8分）', slot:'afternoon', est:0,
+    price:'免費散策（陶器另計）',
+    desc:'330年歷史的燒物（やちむん）發源地：琉球石灰岩鋪成的石疊路兩側，陶器工房、選物店與古民家咖啡一路相連，適合慢步挑一只シーサー獅子或茶碗帶回家。全程平路好走，是長輩也能悠哉逛的文化街區。',
+    tag:'330年陶器街・平路好走', links:{ g: '壺屋やちむん通り' } },
+  { id:'s09', kind:'spot', name:'瀨長島 Umikaji Terrace', jp:'瀬長島ウミカジテラス', cluster:'naha', area:'豐見城市（那霸市區計程車約20分）', slot:'afternoon', est:0,
+    price:'免費入場（餐飲另計）',
+    desc:'純白希臘風階梯式露台面向東海，腳下是起降那霸機場的飛機——每隔幾分鐘一班從頭頂掠過，配夕陽是本島南部最療癒的畫面。約40間小店以輕食甜點為主，長輩找一間露台咖啡坐下看飛機、年輕人逐層拍照，各得其樂。冬季海風大，防風外套必備。',
+    tag:'純白露台・看飛機起降', links:{ g: '瀬長島ウミカジテラス', o:'https://www.umikajiterrace.com/' } },
+  { id:'s10', kind:'spot', name:'DMM Kariyushi 水族館', jp:'DMMかりゆし水族館', cluster:'naha', area:'豐見城市 iias 豐見城（瀨長島車程約8分）', slot:'afternoon', est:500,
+    price:'成人約 2,400円 ≈ NT$500／人（線上購票常有優惠）',
+    desc:'2020年開幕的新型態都市水族館，結合投影與實景的沉浸式展示，規模精巧、全室內有空調，逛起來輕鬆不累，適合與瀨長島排同一個下午。與美麗海定位不同：這裡看的是氛圍與互動，親子與長輩都好消化。',
+    tag:'全室內・瀨長島順路', links:{ g: 'DMMかりゆし水族館', o:'https://kariyushi-aquarium.com/', kk:'DMM Kariyushi 水族館門票' } },
+  { id:'s11', kind:'spot', name:'萬座毛', jp:'万座毛', cluster:'central', area:'恩納村（中部包車路線）', slot:'afternoon', est:20,
+    price:'入場 100円 ≈ NT$20／人',
+    desc:'「可容萬人齊坐的草原」——象鼻岩斷崖配湛藍海面，是沖繩最經典的明信片畫面。環狀步道一圈約20分鐘、平緩好走，2020年整建後的休憩設施有電梯與室內賣店，長輩走累了隨時能進去躲風。冬季海崖風極大，毛帽圍巾務必戴好。',
+    tag:'象鼻岩斷崖・經典地標', links:{ g: '万座毛' } },
+  { id:'s12', kind:'spot', name:'殘波岬公園', jp:'残波岬', cluster:'central', area:'讀谷村（中部包車路線）', slot:'morning', est:0,
+    price:'免費（燈塔登頂約300円）',
+    desc:'2公里長的隆起珊瑚礁斷崖，白色燈塔矗立在岬角，海浪拍崖的氣勢在冬季東北季風下最壯觀。停留30-45分鐘看海拍照即可，風大低溫，長輩觀浪請與崖邊保持距離。',
+    tag:'斷崖燈塔・觀浪', links:{ g: '残波岬' } },
+  { id:'s13', kind:'spot', name:'美國村 American Village', jp:'美浜アメリカンビレッジ', cluster:'central', area:'北谷町美濱（那霸車程約40-50分）', slot:'afternoon', est:0,
+    price:'免費逛（購物餐飲另計）',
+    desc:'美式殖民風的海濱商圈：彩色建築、塗鴉牆與嗨氣的異國氛圍最好拍，Depot Island 後方直通日落海灘，傍晚在海堤看夕陽配海岸咖啡廳是招牌行程。店家集中、平路好走，雨天騎樓也能逛。',
+    tag:'美式街區・日落海灘', links:{ g: '美浜アメリカンビレッジ', o:'https://www.okinawa-americanvillage.com/' } },
+  { id:'s14', kind:'spot', name:'國際通屋台村', jp:'国際通り屋台村', cluster:'kokusai', area:'牧志（飯店步行約10分）', slot:'night', est:320,
+    price:'免費入場；小吃與酒每人約 1,000-2,000円 ≈ NT$210-420',
+    desc:'20間沖繩小吃屋台圍成的深夜食堂聚落，海葡萄、天婦羅、石垣牛串與泡盛一攤攤換著吃，氣氛熱鬧但不吵雜，想淺嚐在地夜生活這裡最安全。長輩若累了可先回飯店（步行10分），年輕人續攤剛剛好。',
+    tag:'深夜食堂聚落・宵夜', links:{ g: '国際通り屋台村' } },
+  { id:'s15', kind:'spot', name:'識名園（世界遺產庭園）', jp:'識名園', cluster:'naha', area:'那霸市識名（市區計程車約12分）', slot:'morning', est:85,
+    price:'成人 400円 ≈ NT$85／人',
+    desc:'琉球王家最大的別邸庭園，迴遊式池泉配六角堂與石橋，融合中國與琉球樣式，遊客少、步調慢，是長輩最喜歡的「有底蘊、不趕路」景點。全程平路石板道，一圈約40-60分。',
+    tag:'世界遺產・清幽庭園', links:{ g: '識名園' } }
+];
+
+/* ── 餐飲（29）───────────────────────────────
+   slot: brunch / lunch / dinner / cafe / dessert / snack / supper / meal(午晚皆可) */
+const FOODS = [
+  /* 沖繩麵 */
+  { id:'f01', kind:'food', cat:'soba', name:'OKINAWA SOBA EIBUN', jp:'OKINAWA SOBA EIBUN', cluster:'kokusai', flex:['kokusai','naha'], area:'壺屋（國際通步行約8分）', slot:'lunch', est:250,
+    price:'約NT$210-290／人（1,000-1,400円）', wait:'排隊名店：開店前就有人排、尖峰約30-60分——建議年輕人先去抽號排隊，長輩在壺屋通咖啡廳休息會合',
+    desc:'把傳統沖繩麵開進文青小酒館的人氣名店：清澈醇厚的湯頭配彈牙麵條與軟盅肋排，加上滷到透亮的三枚肉，是年輕世代的沖繩麵首選。座位不多、翻桌不快，務必用分流戰術。※公休日以官方社群公告為準。',
+    tag:'文青沖繩麵・排隊名店', links:{ g: 'OKINAWA SOBA EIBUN' } },
+  { id:'f02', kind:'food', cat:'soba', name:'首里そば', jp:'首里そば', cluster:'naha', area:'首里（首里城步行約10分）', slot:'lunch', est:160,
+    price:'約NT$130-190／人（600-900円）', wait:'只賣中午、手打麵售完即打烊（常見13:30-14:00前完售），建議11:30前到',
+    desc:'首里城順路的傳統手打沖繩麵殿堂：麵條每日限量手打，彈勁十足，湯頭清澄回甘，配一碟花生豆腐是行家吃法。適合排在首里城參觀後的午餐，賣完就收，寧早勿晚。',
+    tag:'手打限量・售完打烊', links:{ g: '首里そば' } },
+  { id:'f03', kind:'food', cat:'soba', name:'きしもと食堂 本店', jp:'きしもと食堂', cluster:'north', area:'本部町渡久地（美麗海車程約10分）', slot:'lunch', est:190,
+    price:'約NT$150-230／人（700-1,100円）', wait:'觀光客與在地人都排，尖峰約20-40分；翻桌快',
+    desc:'1905年創業的沖繩麵活化石：木灰汁製麵的傳統工法、柴魚濃湯配燉軟三枚肉，配一份じゅーしー（沖繩炊飯）是百年不變的定番。美麗海水族館前後順路，包車路線最適午餐。※週三公休。',
+    tag:'1905年創業・美麗海順路', links:{ g: 'きしもと食堂 本店' } },
+  { id:'f04', kind:'food', cat:'soba', name:'山原そば', jp:'山原そば', cluster:'north', area:'本部町伊豆味（八重岳山腳，賞櫻順路）', slot:'lunch', est:190,
+    price:'約NT$150-230／人（700-1,100円）', wait:'古民家名店，開店前就排隊、售完即收（約15:00前）；建議避開12-13點尖峰',
+    desc:'紅瓦古民家裡的排隊名店，就在往八重岳的縣道旁——賞櫻日的完美午餐。軟骨排（ソーキ）燉到入口即化，湯頭柴魚香濃郁不死鹹，長輩接受度極高。※週一、週二公休（櫻花季照休，行程請避開）。',
+    tag:'八重岳順路・古民家', links:{ g: '山原そば' } },
+  { id:'f05', kind:'food', cat:'soba', name:'浜屋そば', jp:'浜屋そば', cluster:'central', area:'北谷町宮城海岸（美國村車程約5分）', slot:'lunch', est:160,
+    price:'約NT$130-190／人（600-900円）', wait:'在地人氣店，尖峰約10-20分',
+    desc:'北谷海岸邊的在地沖繩麵老店，招牌浜屋そば的軟骨肉燉到用筷子一夾就散，湯頭溫潤，價格實惠。美國村行程的順路午餐好選擇。',
+    tag:'北谷在地老店', links:{ g: '浜屋そば 北谷' } },
+  /* 燒肉・和牛 */
+  { id:'f06', kind:'food', cat:'yakiniku', name:'燒肉本部牧場 縣廳前店', jp:'焼肉もとぶ牧場 県庁前店', cluster:'kokusai', flex:['kokusai','naha'], area:'久茂地（飯店步行約6分）', slot:'meal', est:650,
+    price:'午間套餐 1,500円起 ≈ NT$315；晚間均消約NT$800-1,300／人（4,000-6,000円）', wait:'建議先透過官網或 Klook/KKday 訂位，免現場等候與語言溝通',
+    desc:'自家牧場直送「本部牛」的直營燒肉店：肉質鮮甜穩定、油花適中不膩口，長輩腸胃負擔小。外觀低調藏在大樓裡，但性價比是國際通周邊燒肉最高一檔——尤其午間和牛套餐最超值，全家飽餐的首選。',
+    tag:'本部牛直營・午間套餐超值', links:{ g: '焼肉もとぶ牧場 県庁前店', kk:'燒肉本部牧場' } },
+  { id:'f07', kind:'food', cat:'yakiniku', name:'燒肉琉球之牛 國際通', jp:'焼肉 琉球の牛 国際通り', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（國際通中段）', slot:'dinner', est:1900,
+    price:'均消約NT$1,700-2,500／人（8,000-12,000円）', wait:'一位難求：務必提前於官網訂位，或請包車業者代訂',
+    desc:'沖繩燒肉的奢華頂點：嚴選縣產和牛，油花豐厚入口即溶，包廂式座位與網美系裝潢帶足儀式感。適合當旅程的「大餐日」犒賞——但油脂較重，長輩淺嚐即可，建議搭配清爽湯品與蔬菜。',
+    tag:'頂級縣產和牛・需預約', links:{ g: '焼肉 琉球の牛 国際通り', o:'https://www.u-shi.net/' } },
+  /* 阿古豬 */
+  { id:'f08', kind:'food', cat:'agu', name:'阿古豬隱家（あぐーの隠れ家）萬座店', jp:'あぐーの隠れ家 万座店', cluster:'central', area:'恩納村（萬座毛車程約3分）', slot:'dinner', est:1000,
+    price:'蒸籠套餐約NT$840-1,150／人（4,000-5,500円）', wait:'建議事先訂位（可請包車司機代訂）',
+    desc:'招牌「阿古豬與海鮮蒸籠套餐」用高溫清蒸鎖住肉汁：阿古豬脂肪熔點低、腥味極少，配車蝦干貝清甜不膩，把多餘油脂全逼掉——是整份名單裡對長輩腸胃最溫柔的一頓。距萬座毛3分鐘車程，中部包車日的完美晚餐。',
+    tag:'蒸籠鎖汁・長輩友善', links:{ g: 'あぐーの隠れ家 万座店' } },
+  { id:'f09', kind:'food', cat:'agu', name:'我那霸豚肉店 牧志店', jp:'我那覇豚肉店', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（市場本通旁）', slot:'dinner', est:750,
+    price:'阿古豬涮涮鍋套餐約NT$630-950／人（3,000-4,500円）', wait:'人氣店，晚餐尖峰約15-30分，可先訂位',
+    desc:'縣產豬肉專門商的直營店：純沖繩阿古豬涮涮鍋涮5秒就能吃，脂肪清甜不膩，昆布湯底把肉香整個抬起來。市區就吃得到高品質阿古豬，不用特地跑郊外。',
+    tag:'肉舖直營・市區阿古豬', links:{ g: '我那覇豚肉店 牧志店' } },
+  { id:'f11', kind:'food', cat:'agu', name:'百年古家 大家（うふやー）', jp:'百年古家 大家', cluster:'north', area:'名護（北部包車回程順路）', slot:'meal', est:700,
+    price:'阿古豬套餐約NT$550-950／人（2,600-4,500円）', wait:'觀光名店座位多，晚餐建議訂位',
+    desc:'明治時代古民家群改建的阿古豬料理名店，背倚瀑布小溪、紅瓦木屋氛圍滿點。招牌阿古豬涮涮鍋與燉軟骨定食都溫和好入口，北部包車日回程順路吃晚餐，時間動線最順。',
+    tag:'百年古民家・北部晚餐', links:{ g: '百年古家 大家', o:'https://ufuya.com/' } },
+  /* 居酒屋・沖繩食堂 */
+  { id:'f12', kind:'food', cat:'izakaya', name:'ちぬまん（Chinuman）國際通牧志店', jp:'ちぬまん 国際通り牧志店', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（國際通東段）', slot:'dinner', est:750,
+    price:'均消約NT$630-950／人（3,000-4,500円）', wait:'三線琴現場演唱場次約19:00起——建議訂位時指定表演時段的座位',
+    desc:'擁有漁市場早市競標權的海鮮居酒屋：刺身新鮮度有保證，晚餐時段的三線琴現場演唱把氣氛整個炒起來。海葡萄、雜炒苦瓜、滷東坡肉配Orion生啤，一晚把琉球味覺與聽覺一次補完——全家沉浸式在地文化的首選。',
+    tag:'三線Live・漁市直送', links:{ g: 'ちぬまん 国際通り牧志店' } },
+  { id:'f13', kind:'food', cat:'izakaya', name:'うりずん（Urizun）安里本店', jp:'うりずん 安里本店', cluster:'kokusai', flex:['kokusai','naha'], area:'安里（安里站步行約2分）', slot:'dinner', est:650,
+    price:'均消約NT$530-840／人（2,500-4,000円）', wait:'1972年老店人氣不墜，建議訂位；17:30開店',
+    desc:'1972年創業的古民家居酒屋，致力泡盛古酒復興、擁有自家酒窖，全沖繩酒藏的泡盛幾乎都點得到。田芋泥可樂餅（ドゥル天）是必點名物，氛圍高雅復古——適合喜歡品酒、想聽故事的長輩淺酌一晚。',
+    tag:'泡盛古酒殿堂・復古氛圍', links:{ g: 'うりずん 安里本店' } },
+  { id:'f14', kind:'food', cat:'izakaya', name:'花笠食堂', jp:'花笠食堂', cluster:'kokusai', flex:['kokusai','naha'], area:'平和通商店街內', slot:'meal', est:200,
+    price:'定食約NT$170-250／人（800-1,200円）', wait:'在地食堂免預約，尖峰稍候即可',
+    desc:'平和通裡的昭和風老食堂：足量的沖繩定食（滷三枚肉、苦瓜炒蛋、紅燒魚）附飯湯與甜點，紅色冰茶壺是招牌記憶點。價格實惠、口味家常，逛市場逛街途中最踏實的一餐。',
+    tag:'昭和食堂・在地定食', links:{ g: '花笠食堂' } },
+  /* 海鮮・市場 */
+  { id:'f15', kind:'food', cat:'seafood', name:'第一牧志公設市場 2F食堂（代客料理）', jp:'第一牧志公設市場', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（市場本通內）', slot:'lunch', est:650,
+    price:'海鮮＋代客料理費約NT$420-950／人（2,000-4,500円）', wait:'1樓買海鮮、2樓食堂代客料理（每品調理費約500円）；週末午餐尖峰人多',
+    desc:'那霸的廚房：1樓攤商挑選夜光貝、龍蝦或紅色的グルクン魚，直接送2樓食堂料理成刺身、奶油燒與魚湯——長輩最愛的「現挑現煮」儀式感。2023年整建後市場明亮乾淨。※每月第4個週日公休（1/24適逢公休，請排在其他天）。',
+    tag:'現挑現煮・那霸的廚房', links:{ g: '第一牧志公設市場' } },
+  { id:'f16', kind:'food', cat:'seafood', name:'泊いゆまち 海鮮丼', jp:'泊いゆまち', cluster:'naha', area:'泊港旁（賞鯨船碼頭步行約7分）', slot:'lunch', est:300,
+    price:'海鮮丼約NT$210-420／碗（1,000-2,000円）', wait:'24間鮮魚舖清晨開賣，中午前選擇最多；14:00後陸續收攤',
+    desc:'那霸最大鮮魚市場：縣產鮪魚是主角，厚切生魚片蓋滿飯的海鮮丼份量誠意十足，價格比觀光區實在。賞鯨下船後步行就到，早午餐動線完美銜接。',
+    tag:'賞鯨順路・鮪魚市場', links:{ g: '泊いゆまち' } },
+  /* 牛排・洋食 */
+  { id:'f17', kind:'food', cat:'steak', name:'傑克牛排館 Jack\'s Steak House', jp:'ジャッキーステーキハウス', cluster:'kokusai', flex:['kokusai','naha'], area:'西町（旭橋站步行約8分）', slot:'dinner', est:580,
+    price:'菲力牛排約NT$460-700／份（2,200-3,300円）', wait:'不接受訂位：取號候位，尖峰約20-40分；離峰時段（14:00-17:00）最好進',
+    desc:'1953年開業的美式牛排老店，燈號招牌與復古卡座凍結在美國統治時代。鐵板菲力配A1醬是沖繩牛排文化的原點，肉質軟嫩長輩好咬。戰後洋食氛圍本身就是景點。',
+    tag:'1953老店・沖繩牛排原點', links:{ g: 'ジャッキーステーキハウス' } },
+  { id:'f18', kind:'food', cat:'steak', name:'やっぱりステーキ（國際通）', jp:'やっぱりステーキ', cluster:'kokusai', flex:['kokusai','naha'], area:'國際通周邊（多分店）', slot:'meal', est:220,
+    price:'牛排定食 1,000円起 ≈ NT$210（飯湯沙拉自助吃到飽）', wait:'翻桌快，幾乎免排',
+    desc:'沖繩發跡的千円牛排連鎖：熔岩石板上桌自己控制熟度，白飯湯品沙拉無限續，快、飽、便宜。想把預算留給大餐日時，這裡是最穩的口袋名單。',
+    tag:'千円牛排・快飽省', links:{ g: 'やっぱりステーキ 国際通り', o:'https://yapparigroup.jp/' } },
+  /* 美式・漢堡 */
+  { id:'f19', kind:'food', cat:'burger', name:'A&W 牧志店', jp:'A&W 牧志店', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志站前（國際通東端）', slot:'meal', est:190,
+    price:'漢堡套餐約NT$150-250／人（700-1,200円）', wait:'速食店免排；內用麥根沙士無限續杯',
+    desc:'1963年就登陸沖繩的美式速食：Mozza漢堡與洋蔥圈是定番，招牌麥根沙士（Root Beer）藥草氣泡風味是「愛的人超愛」的沖繩體驗——內用免費續杯，當飲料店坐坐也行。',
+    tag:'沖繩限定美式・麥根沙士', links:{ g: 'A&W 牧志店', o:'https://www.awok.co.jp/' } },
+  { id:'f20', kind:'food', cat:'burger', name:'Jef 苦瓜漢堡（与儀店）', jp:'Jef 与儀店', cluster:'kokusai', flex:['kokusai','naha'], area:'与儀（壺屋通步行約10分）', slot:'lunch', est:120,
+    price:'ぬーやるバーガー約NT$100-150（500-700円）', wait:'在地速食免排',
+    desc:'只有沖繩才有的在地速食品牌：招牌「ぬーやるバーガー」把苦瓜煎蛋夾進漢堡，苦香回甘意外契合，是便宜又有梗的沖繩限定體驗，年輕人打卡首選。',
+    tag:'沖繩限定・苦瓜漢堡', links:{ g: 'ジェフ 与儀店' } },
+  /* 海景咖啡 */
+  { id:'f21', kind:'food', cat:'cafe', name:'瀨長島 幸福鬆餅（幸せのパンケーキ）', jp:'幸せのパンケーキ ウミカジテラス店', cluster:'naha', area:'瀨長島 Umikaji Terrace', slot:'cafe', est:320,
+    price:'鬆餅套餐約NT$250-380／人（1,200-1,800円）', wait:'海景座尖峰要候位30分以上，可先登記再逛露台',
+    desc:'白色露台上的舒芙蕾鬆餅名店：綿雲口感配發酵奶油蜂蜜，座位正對海面與飛機航道——長輩看飛機喝茶、年輕人拍鬆餅，瀨長島下午茶的正解。',
+    tag:'海景舒芙蕾鬆餅', links:{ g: '幸せのパンケーキ ウミカジテラス', o:'https://magia.tokyo/' } },
+  { id:'f22', kind:'food', cat:'cafe', name:'oHacorte 水果塔 港川本店', jp:'oHacorte 港川本店', cluster:'naha', area:'浦添市港川外人住宅街（PARCO CITY 車程約7分）', slot:'cafe', est:280,
+    price:'水果塔＋飲品約NT$230-340／人（1,100-1,600円）', wait:'小店座位少，假日下午常滿；外帶不用等',
+    desc:'外人住宅改建的水果塔專門店：當季水果堆成寶石盒，塔皮酥香不甜膩，小庭院與白牆平房自帶度假濾鏡。逛 PARCO CITY 前後順路，把美式老屋街區一起收進行程。',
+    tag:'外人住宅・水果塔名店', links:{ g: 'oHacorte 港川本店', o:'https://ohacorte.com/' } },
+  { id:'f23', kind:'food', cat:'cafe', name:'花人逢（かじんほう）', jp:'花人逢', cluster:'north', area:'本部町山上（美麗海車程約15分）', slot:'cafe', est:350,
+    price:'披薩（小）＋果汁約NT$290-420／人（1,400-2,000円）', wait:'超人氣：登記候位常需30-60分，建議避開12-14點',
+    desc:'紅瓦古民家坐落山丘頂，庭院正對伊江島與東海的無敵海景——菜單只有披薩沙拉與果汁，簡單卻讓人待到不想走。北部包車日的午後亮點，長輩坐廊下看海即是享受。※週一、週二公休。',
+    tag:'山丘海景古民家・只賣披薩', links:{ g: '花人逢' } },
+  { id:'f24', kind:'food', cat:'cafe', name:'Transit Café（北谷海岸）', jp:'トランジットカフェ', cluster:'central', area:'北谷町宮城海岸（美國村車程約5分）', slot:'cafe', est:350,
+    price:'下午茶約NT$250-420／人；午餐約NT$350-500', wait:'海景窗邊座建議先訂位，日落時段最搶手',
+    desc:'北谷海岸線上的老牌海景咖啡：二樓窗邊與露台直接懸在海堤上，點杯咖啡看冬日海面波光就值回票價。美國村行程的質感收尾，日落場次記得提早卡位。',
+    tag:'海堤上的日落咖啡', links:{ g: 'トランジットカフェ 北谷' } },
+  /* 早餐・輕食 */
+  { id:'f25', kind:'food', cat:'brunch', name:'ポークたまごおにぎり本店 牧志市場店', jp:'ポークたまごおにぎり本店', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（市場本通入口）', slot:'brunch', est:100,
+    price:'飯糰約NT$75-130／個（350-600円）', wait:'現點現做：早餐尖峰排20-40分，7:00開門剛開店最順',
+    desc:'沖繩靈魂早餐「豬肉蛋飯糰」的始祖店：現煎午餐肉配軟嫩玉子燒現包，招牌加島豆腐糬或炸蝦口味最搶手。外帶邊走邊吃，或帶回飯店配咖啡都行——輕食型早餐，不佔正餐額度。',
+    tag:'沖繩靈魂早餐・現做', links:{ g: 'ポークたまごおにぎり本店 牧志市場店', o:'https://porktamago.com/' } },
+  { id:'f26', kind:'food', cat:'brunch', name:'C&C BREAKFAST OKINAWA', jp:'C&C BREAKFAST OKINAWA', cluster:'kokusai', flex:['kokusai','naha'], area:'松尾（市場本通旁）', slot:'brunch', est:300,
+    price:'早午餐約NT$250-360／人（1,200-1,700円）', wait:'人氣早午餐店，假日9:00後常要候位',
+    desc:'「用美好早餐開啟旅行日」的專門店：燕麥鬆餅、法式吐司與酪梨蛋班尼迪克都做得講究，蔬果用縣產食材。適合安排在逛牧志市場前的悠閒早晨。※營業到下午早段，公休日以官方公告為準。',
+    tag:'質感早午餐・市場旁', links:{ g: 'C&C BREAKFAST OKINAWA' } },
+  /* 甜點・冰品 */
+  { id:'f27', kind:'food', cat:'dessert', name:'Blue Seal 冰淇淋 國際通牧志店', jp:'ブルーシール 国際通り牧志店', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（國際通中段）', slot:'dessert', est:90,
+    price:'單球約NT$80-110（380-520円）', wait:'免排，隨到隨買',
+    desc:'「誕生於美國、成長於沖繩」的國民冰品：紅芋、鹽金楚糕、甘蔗等沖繩限定口味最該試，冬天店內有座位慢慢吃。逛國際通的標配甜點停留。',
+    tag:'沖繩國民冰品', links:{ g: 'ブルーシール 国際通り牧志店', o:'https://www.blueseal.co.jp/' } },
+  { id:'f28', kind:'food', cat:'dessert', name:'富士家 泡盛善哉 泊本店', jp:'富士家 泊本店', cluster:'naha', area:'泊（泊港車程約3分）', slot:'dessert', est:110,
+    price:'沖繩ぜんざい約NT$85-130（400-600円）', wait:'在地老店免久等',
+    desc:'沖繩式「善哉」名店：金時紅豆熬得綿密，剉冰底吸飽黑糖蜜——冬天也有熱ぜんざい選項，長輩暖胃剛剛好。賞鯨或泊港行程順路的甜點站。',
+    tag:'沖繩善哉老店・冬有熱甜湯', links:{ g: '富士家 泊本店' } },
+  /* 拉麵・宵夜 */
+  { id:'f29', kind:'food', cat:'ramen', name:'暖暮拉麵 那霸牧志店', jp:'ラーメン暖暮 那覇牧志店', cluster:'kokusai', flex:['kokusai','naha'], area:'牧志（國際通近三越里）', slot:'supper', est:220,
+    price:'拉麵約NT$190-270／碗（900-1,300円）', wait:'台灣旅客最愛排的拉麵：尖峰30-60分，宵夜時段較好進',
+    desc:'九州豚骨拉麵勁旅：濃醇豚骨湯配細麵與炙燒叉燒，辣度油量客製。營業到深夜，逛完國際通當宵夜收尾正好——長輩若不吃宵夜，這攤讓年輕人自己去排。',
+    tag:'深夜豚骨・排隊名店', links:{ g: 'ラーメン暖暮 那覇牧志店' } },
+  { id:'f30', kind:'food', cat:'ramen', name:'通堂拉麵 小祿本店', jp:'琉球新麺 通堂 小禄本店', cluster:'naha', area:'小祿（單軌小祿站旁）', slot:'meal', est:200,
+    price:'拉麵約NT$170-250／碗（800-1,200円）', wait:'座位多、翻桌快，稍候即可',
+    desc:'沖繩在地拉麵代表：「男味」豚骨濃郁、「女味」鹽味清爽，一家店滿足兩代口味。就在單軌小祿站旁，往瀨長島、機場或 AEON 順路的實力派一餐。',
+    tag:'男味女味雙湯頭・小祿站旁', links:{ g: '通堂 小禄本店' } }
+];
+
+/* ── 購物（34）─────────────────────────────── */
+const SHOPS = [
+  /* 伴手禮甜點 */
+  { id:'p01', kind:'shop', cat:'souvenir', name:'御菓子御殿 紅芋塔（10入）', buy:'御菓子御殿 國際通松尾店', cluster:'kokusai', est:230,
+    price:'約NT$230／10入（1,080円）', safe:'ok',
+    desc:'沖繩伴手禮的絕對王者：純天然紫心地瓜製餡、無人工色素。帶回台灣後放冰箱「冷藏」再吃，內餡口感更濃郁紮實——送親戚長輩的零風險選擇。',
+    links:{ g: '御菓子御殿 国際通り松尾店', o:'https://www.okashigoten.co.jp/' } },
+  { id:'p02', kind:'shop', cat:'souvenir', name:'新垣ちんすこう 金楚糕', buy:'國際通各伴手禮店', cluster:'kokusai', est:140,
+    price:'約NT$110-170／盒（500-800円）', safe:'ok',
+    desc:'琉球王朝御用點心的正統老舖：豬油香酥、甜而不膩，配茶絕佳，是長輩世代最有共鳴的傳統味。',
+    links:{ g: '新垣ちんすこう', s:'新垣ちんすこう' } },
+  { id:'p03', kind:'shop', cat:'souvenir', name:'雪塩ちんすこう（雪鹽金楚糕）', buy:'わした本店／各伴手禮店', cluster:'kokusai', est:160,
+    price:'約NT$130-190／盒（600-900円）', safe:'ok',
+    desc:'宮古島雪鹽入餡的鹹甜平衡版金楚糕，比傳統款更輕盈順口，藍白包裝送同事分裝方便。',
+    links:{ g: 'わした本店', s:'雪塩ちんすこう' } },
+  { id:'p04', kind:'shop', cat:'souvenir', name:'雪鹽棉花糖餅「ふわわ」', buy:'わした本店／各伴手禮店', cluster:'kokusai', est:130,
+    price:'約NT$105-150／盒（500-700円）', safe:'ok',
+    desc:'入口即化的雪鹽棉花糖餅，鹹味把甜度收得剛剛好，輕巧不佔行李，女生同事群發款。',
+    links:{ s:'雪塩ふわわ' } },
+  { id:'p05', kind:'shop', cat:'souvenir', name:'ちんすこうショコラ（金楚糕巧克力）', buy:'唐吉訶德／機場', cluster:'kokusai', est:160,
+    price:'約NT$130-190／盒（600-900円）', safe:'ok',
+    desc:'金楚糕裹黑巧克力的人氣變化款，酥鬆×苦甜的組合年輕人接受度最高；冬天帶回台灣不怕融化。',
+    links:{ s:'ちんすこうショコラ ファッションキャンディ' } },
+  { id:'p06', kind:'shop', cat:'souvenir', name:'ROYCE\' 石垣島 黑糖巧克力', buy:'唐吉訶德／機場', cluster:'kokusai', est:210,
+    price:'約NT$170-250／盒（800-1,200円）', safe:'ok',
+    desc:'北海道 ROYCE\' 的沖繩限定線：黑糖與鹽味生巧克力只在沖繩買得到，質感送禮的安全牌。1月氣溫低，帶回台灣正合適。',
+    links:{ s:'ロイズ石垣島 黒糖チョコレート' } },
+  { id:'p07', kind:'shop', cat:'souvenir', name:'35COFFEE 珊瑚焙煎咖啡', buy:'國際通各店／機場', cluster:'kokusai', est:320,
+    price:'約NT$250-380／包（1,200-1,800円）', safe:'ok',
+    desc:'用風化珊瑚礁石焙煎的沖繩在地咖啡品牌，部分營收用於珊瑚再生。風味溫潤帶焦糖尾韻，送咖啡同好有故事可講。',
+    links:{ s:'35COFFEE 沖縄' } },
+  { id:'p08', kind:'shop', cat:'souvenir', name:'美麗海水族館限定 鯨鯊周邊', buy:'美麗海水族館 紀念品店', cluster:'north', est:470,
+    price:'布偶約NT$320-630（1,500-3,000円）', safe:'ok',
+    desc:'黑潮之海的鯨鯊做成布偶、毛巾與文具，館內限定款只有現場買得到——參觀完順手帶，錯過就沒有第二次機會。',
+    links:{ g: '沖縄美ら海水族館', o:'https://churaumi.okinawa/' } },
+  /* 沖繩食品・調味 */
+  { id:'p09', kind:'shop', cat:'food_local', name:'邊銀食堂 石垣島辣油', buy:'わした本店／唐吉訶德', cluster:'kokusai', est:210,
+    price:'約NT$170-250／瓶（800-1,200円）', safe:'ok-check',
+    desc:'被譽為「秒殺夢幻神醬」的石垣島辣油：香料香氣大於辣度，拌麵配飯層次直接升級，主婦圈的最愛（液體須託運）。',
+    links:{ s:'石垣島ラー油 辺銀食堂' } },
+  { id:'p10', kind:'shop', cat:'food_local', name:'沖繩海蘊・海帶芽乾貨（もずく／アーサ）', buy:'牧志公設市場／超市', cluster:'kokusai', est:130,
+    price:'約NT$85-170／包（400-800円）', safe:'ok',
+    desc:'重量極輕不佔行李：熱水一沖就還原濃郁海潮鮮味，煮湯拌醋都好用，是高CP值的實用伴手禮。',
+    links:{ g: '第一牧志公設市場', s:'沖縄 もずく アーサ 乾燥' } },
+  { id:'p11', kind:'shop', cat:'food_local', name:'山原香檬原汁（シークヮーサー100%）', buy:'わした本店／超市', cluster:'kokusai', est:320,
+    price:'約NT$250-380／瓶（1,200-1,800円）', safe:'ok-check',
+    desc:'沖繩香檬100%原汁，兌水、調酒、淋烤魚都清香開胃，維生素滿點——長輩喝得健康、年輕人調飲料（液體須託運）。',
+    links:{ s:'山原 シークヮーサー 原液' } },
+  { id:'p12', kind:'shop', cat:'food_local', name:'沖繩そば乾麵＋湯底組合', buy:'唐吉訶德／超市', cluster:'kokusai', est:140,
+    price:'約NT$105-170／組（500-800円）', safe:'ok',
+    desc:'把沖繩麵帶回家：乾麵配柴魚豚骨湯底粉，加片火腿與蔥花就能還原七成現場味。※含肉塊調理包版本禁帶回台，買「乾麵＋粉包」款最安全。',
+    links:{ s:'沖縄そば 乾麺 お土産' } },
+  { id:'p13', kind:'shop', cat:'food_local', name:'A1 牛排醬（沖繩家庭常備）', buy:'唐吉訶德／超市', cluster:'kokusai', est:95,
+    price:'約NT$80-110／瓶（380-520円）', safe:'ok-check',
+    desc:'沖繩牛排文化的靈魂酸香醬：英國起源卻在沖繩發揚光大，家家戶戶常備。回台煎牛排淋一圈，傑克牛排館的味道就回來了（玻璃瓶液體須託運防撞）。',
+    links:{ s:'A1ソース 沖縄' } },
+  { id:'p14', kind:'shop', cat:'food_local', name:'多良間島・八重山純黑糖', buy:'牧志公設市場／わした本店', cluster:'kokusai', est:85,
+    price:'約NT$65-105／包（300-500円）', safe:'ok',
+    desc:'離島產純黑糖塊：直接含著吃或煮黑糖薑茶，礦物感回甘，長輩泡茶配著吃剛剛好。',
+    links:{ s:'多良間島 純黒糖' } },
+  { id:'p15', kind:'shop', cat:'food_local', name:'SPAM／TULIP 午餐肉罐頭', buy:'唐吉訶德／超市', cluster:'kokusai', est:105,
+    price:'約NT$85-125／罐（400-600円）', safe:'warn',
+    desc:'沖繩飲食文化代表——但⚠️肉類製品嚴禁帶回台灣（查獲重罰NT$20萬）。想體驗請在當地吃：飯店早餐、豬肉蛋飯糰都有它，「只吃不買」是唯一正解。',
+    links:{ s:'スパム ポーク缶 沖縄' } },
+  { id:'p16', kind:'shop', cat:'food_local', name:'島唐辛子・コーレーグース調味料', buy:'牧志公設市場／超市', cluster:'kokusai', est:105,
+    price:'約NT$85-125／瓶（400-600円）', safe:'ok-check',
+    desc:'島辣椒泡泡盛的沖繩桌上常備辣調味：幾滴就能讓沖繩麵、炒青菜提神醒腦（含酒精液體須託運）。',
+    links:{ s:'コーレーグース 島唐辛子' } },
+  /* 泡盛・酒類 */
+  { id:'p17', kind:'shop', cat:'liquor', name:'泡盛 殘波（比嘉酒造）', buy:'唐吉訶德／わした本店', cluster:'kokusai', est:260,
+    price:'約NT$210-320／瓶720ml（1,000-1,500円）', safe:'ok-check',
+    desc:'「殘波白」清爽易入口、女性接受度高；「殘波黑」香氣厚實——泡盛入門的雙保險。加冰、兌水或配香檬汁都對味（酒類須託運，每人免稅額1公升）。',
+    links:{ s:'泡盛 残波 比嘉酒造' } },
+  { id:'p18', kind:'shop', cat:'liquor', name:'瑞泉 古酒（首里の名門）', buy:'RYUBO百貨／專賣店', cluster:'kokusai', est:470,
+    price:'約NT$320-630／瓶（1,500-3,000円）', safe:'ok-check',
+    desc:'首里三箇由來的百年酒造：古酒（クース）熟成後的圓潤甘醇適合純飲，送懂酒的長輩最有面子（酒類須託運）。',
+    links:{ s:'瑞泉 泡盛 古酒' } },
+  { id:'p19', kind:'shop', cat:'liquor', name:'Orion 啤酒周邊・ビアナッツ', buy:'唐吉訶德／超市', cluster:'kokusai', est:105,
+    price:'堅果約NT$85-125；周邊T恤約NT$420起', safe:'ok',
+    desc:'沖繩國民啤酒的周邊小物與下酒堅果：ビアナッツ一包五種口味，配啤酒剛剛好；Orion毛巾T恤是年輕人的伴手禮梗。',
+    links:{ s:'オリオンビアナッツ' } },
+  /* 藥妝・保健 */
+  { id:'p20', kind:'shop', cat:'pharmacy', name:'休足時間・足部舒緩貼片', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:170,
+    price:'約NT$130-210／包（600-1,000円）', safe:'ok',
+    desc:'每天上萬步的旅程救星：睡前貼小腿與腳底，清涼舒緩隔天繼續走。長輩行程必備，回台自用囤貨都合理。',
+    links:{ s:'休足時間 18枚' } },
+  { id:'p21', kind:'shop', cat:'pharmacy', name:'EVE 止痛藥系列', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:200,
+    price:'約NT$150-250／盒（700-1,200円）', safe:'ok',
+    desc:'台灣人最熟的日本常備止痛藥。⚠️西藥入境台灣限量：每種最多12件、合計36件，僅限自用不得轉售。',
+    links:{ s:'イブクイック 頭痛薬' } },
+  { id:'p22', kind:'shop', cat:'pharmacy', name:'太田胃散（罐裝／分包）', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:170,
+    price:'約NT$130-210（600-1,000円）', safe:'ok',
+    desc:'燒肉居酒屋連發的旅程裡，長輩的腸胃後盾。分包款攜帶方便，罐裝款家用實惠（限量規定同左：每種12件內）。',
+    links:{ s:'太田胃散 分包' } },
+  { id:'p23', kind:'shop', cat:'pharmacy', name:'龍角散 喉糖・粉末', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:150,
+    price:'約NT$105-190（500-900円）', safe:'ok',
+    desc:'冬季海風吹整天、喉嚨最知道：龍角散粉末與喉糖護嗓常備，長輩導遊級標配。',
+    links:{ s:'龍角散 のど飴' } },
+  /* 工藝・琉璃 */
+  { id:'p24', kind:'shop', cat:'craft', name:'琉球玻璃杯（琉球ガラス）', buy:'國際通工藝店／壺屋通', cluster:'kokusai', est:520,
+    price:'約NT$320-740／只（1,500-3,500円）', safe:'ok-fragile',
+    desc:'戰後用回收瓶再生的琉球玻璃：氣泡與厚實手感是特色，海色漸層杯每只都獨一無二（易碎，請包好託運或手提防撞）。',
+    links:{ s:'琉球ガラス グラス' } },
+  { id:'p25', kind:'shop', cat:'craft', name:'シーサー獅子擺飾（壺屋燒）', buy:'壺屋やちむん通り', cluster:'kokusai', est:630,
+    price:'約NT$210-1,050／對（1,000-5,000円，依大小）', safe:'ok-fragile',
+    desc:'鎮宅避邪的沖繩獅子：張口公獅招福、閉口母獅守財，成對擺玄關。壺屋通工房手作款最有溫度（易碎防撞）。',
+    links:{ g: '壺屋やちむん通り', s:'シーサー 置物 壺屋焼' } },
+  { id:'p26', kind:'shop', cat:'craft', name:'やちむん陶器餐具', buy:'壺屋やちむん通り', cluster:'kokusai', est:580,
+    price:'約NT$320-840／件（1,500-4,000円）', safe:'ok-fragile',
+    desc:'厚實溫潤的沖繩燒物：魚紋盤與唐草紋碗最經典，日常餐桌立刻有度假感。工房直買比百貨划算（易碎防撞）。',
+    links:{ s:'やちむん 皿 壺屋' } },
+  /* 服飾・潮流 */
+  { id:'p27', kind:'shop', cat:'fashion', name:'かりゆしウェア（沖繩花襯衫）', buy:'國際通專門店', cluster:'kokusai', est:950,
+    price:'約NT$630-1,300／件（3,000-6,000円）', safe:'ok',
+    desc:'沖繩正裝——紅型紋樣的かりゆし襯衫，在地公務員夏天都穿它上班。挑一件質感款，明年夏天全家福就有主題色。',
+    links:{ s:'かりゆしウェア 国際通り' } },
+  { id:'p28', kind:'shop', cat:'fashion', name:'沖繩限定T恤・海人Tシャツ', buy:'國際通各店', cluster:'kokusai', est:420,
+    price:'約NT$320-530／件（1,500-2,500円）', safe:'ok',
+    desc:'「海人（うみんちゅ）」字樣T恤是沖繩土產的經典梗：棉質厚實耐穿，全家買同款拍照放閃用。',
+    links:{ s:'海人 Tシャツ' } },
+  { id:'p29', kind:'shop', cat:'fashion', name:'PARCO CITY 潮流服飾・雜貨', buy:'浦添 PARCO CITY', cluster:'naha', est:1150,
+    price:'約NT$630-2,100／件（依品牌）', safe:'ok',
+    desc:'沖繩最大複合商場：日系服飾、潮牌、母嬰用品與大型雜貨一次逛齊，全室內完美抵禦冬季寒風。年輕夫婦的高強度血拚主場，滿額退稅記得帶護照。',
+    links:{ g: 'サンエー浦添西海岸パルコシティ', o:'https://www.parcocity.jp/' } },
+  /* 超市掃貨 */
+  { id:'p30', kind:'shop', cat:'grocery', name:'沖繩限定零食（雪鹽／紅芋／香檬口味）', buy:'PARCO CITY 1F サンエー超市', cluster:'naha', est:150,
+    price:'約NT$65-210／包（300-1,000円）', safe:'ok',
+    desc:'雪鹽洋芋片、紅芋Kit-Kat、香檬糖——沖繩限定口味在超市買最便宜，一次掃齊回辦公室發放。',
+    links:{ s:'沖縄限定 お菓子 雪塩ちっぷす' } },
+  { id:'p31', kind:'shop', cat:'grocery', name:'沖繩そばカップ麵（マルちゃん等）', buy:'PARCO CITY 超市／便利商店', cluster:'naha', est:55,
+    price:'約NT$40-65／碗（180-300円）', safe:'ok',
+    desc:'沖繩限定杯麵：柴魚湯底的沖繩そば風味，輕便好帶。※選「不含肉塊」的純粉包款才能入境台灣。',
+    links:{ s:'マルちゃん 沖縄そば カップ麺' } },
+  { id:'p32', kind:'shop', cat:'grocery', name:'黑糖薑茶・縣產果乾', buy:'PARCO CITY 超市／わした本店', cluster:'naha', est:150,
+    price:'約NT$105-210（500-1,000円）', safe:'ok',
+    desc:'黑糖薑茶冬天暖身、香檬果乾配茶——長輩自用與送姐妹淘的實用款。',
+    links:{ s:'黒糖しょうがパウダー 沖縄' } },
+  { id:'p33', kind:'shop', cat:'grocery', name:'沖繩限定飲品（さんぴん茶／罐裝麥根沙士）', buy:'飯店周邊超商', cluster:'kokusai', est:45,
+    price:'約NT$30-55／瓶（150-250円）', safe:'ok-check',
+    desc:'さんぴん茶（茉莉香片）是沖繩人的日常茶飲，A&W麥根沙士罐裝版超商就買得到——當場喝最好，要帶回家記得託運。',
+    links:{ s:'さんぴん茶' } },
+  { id:'p34', kind:'shop', cat:'souvenir', name:'紅芋塔以外的御菓子御殿甜點（元祖紅芋菓子系列）', buy:'御菓子御殿 國際通松尾店', cluster:'kokusai', est:180,
+    price:'約NT$130-230／盒（600-1,100円）', safe:'ok',
+    desc:'紅芋派、紅芋布蕾塔與期間限定櫻花系列——紅芋塔之外的第二選擇，現場試吃再決定。',
+    links:{ g: '御菓子御殿 国際通り松尾店', o:'https://www.okashigoten.co.jp/' } }
+];
+
+/* ── 免費填充活動（每區）─────────────────── */
+const ANCHORS = {
+  kokusai: { name:'國際通・平和通商店街散策', desc:'三線琴聲與伴手禮店一路逛，傍晚最熱鬧；騎樓多、下雨也好走', links:{ g:'国際通り' } },
+  naha:    { name:'波之上海灘・海濱步道散步', desc:'那霸市區唯一的海灘，配波上宮紅瓦社殿的海崖景致，看夕陽最愜意', links:{ g:'波の上ビーチ' } },
+  north:   { name:'備瀨福木林道散步', desc:'美麗海水族館旁的百年防風林隧道：翠綠靜謐、完全擋風，長輩散步首選', links:{ g:'備瀬のフクギ並木' } },
+  central: { name:'北谷日落海灘散步', desc:'美國村旁的Sunset Beach，冬天的夕陽依然給力，海堤步道平緩好走', links:{ g:'北谷公園サンセットビーチ' } }
+};
+
+/* ── 交通小抄（從國際通飯店出發）────────── */
+const TRANSIT = {
+  kokusai: '飯店就在國際通正中心（縣廳前站步行約7分）：國際通、平和通、牧志市場、壺屋通皆步行可達。單日搭單軌3次以上可買QR一日券（24小時1,000円）。六人同行短程移動，直接拆「3人×2台計程車」最省力。',
+  naha: '首里城：單軌至首里站步行約15分，或計程車約20分（長輩建議計程車直達）。泊港賞鯨：計程車約8分。瀨長島：計程車約20分（每台約1,500-2,000円）。浦添PARCO CITY：計程車約15分（約1,500円）——回程戰利品多，強烈建議直接搭計程車回飯店。',
+  north: '北部遠征日全程包車（10人座海獅・建議中文司機，10小時約48,000-53,000円）：那霸→美麗海走高速約2小時，車輛可直上八重岳山腰賞櫻，免除長輩爬坡與轉車之苦。司機檔期請提前2-3個月預訂。',
+  central: '恩納・讀谷・北谷一帶大眾運輸班次少，建議續用包車（同北部日規格）；只去美國村可搭120號公車（約1小時）或計程車約40-50分。回程戰利品多以包車或計程車為準。'
+};
+
+const FLIGHT_NOTE = '航班時間以航空公司最終公告／票面為準；日本時間比台灣快 1 小時。';
+
+/* ══════════════════════════════════════════════
+   智慧排程資料：座標／停留時間／生活圈／單軌／採購門市
+   （座標與時間皆為保守估算，供交通與時間軸試算參考）
+   ══════════════════════════════════════════════ */
+
+const HOTEL = { name: '嘉新酒店 Hotel Collective', lat: 26.2137, lng: 127.6830, zone: 'kokusai' };
+
+/* 單軌電車站序（Yui Rail 單一路線；l1 = 站序） */
+const STATIONS = {
+  '那霸機場': { l1: 0 }, '赤嶺': { l1: 1 }, '小祿': { l1: 2 }, '奧武山公園': { l1: 3 },
+  '壺川': { l1: 4 }, '旭橋': { l1: 5 }, '縣廳前': { l1: 6 }, '美榮橋': { l1: 7 },
+  '牧志': { l1: 8 }, '安里': { l1: 9 }, 'おもろまち': { l1: 10 }, '古島': { l1: 11 },
+  '市立病院前': { l1: 12 }, '儀保': { l1: 13 }, '首里': { l1: 14 }
+};
+
+/* 生活圈：最近單軌站＋步行分鐘（st:null＝該區以計程車／包車為主） */
+const ZONES = {
+  kokusai:   { st: '縣廳前', walk: 8,  cluster: 'kokusai' },
+  kencho:    { st: '縣廳前', walk: 3,  cluster: 'kokusai' },
+  makishi:   { st: '牧志',   walk: 4,  cluster: 'kokusai' },
+  asato:     { st: '安里',   walk: 4,  cluster: 'kokusai' },
+  tsuboya:   { st: '牧志',   walk: 9,  cluster: 'naha' },
+  yogi:      { st: '牧志',   walk: 14, cluster: 'naha' },
+  tomari:    { st: '美榮橋', walk: 13, cluster: 'naha' },
+  naminoue:  { st: '縣廳前', walk: 15, cluster: 'naha' },
+  shuri:     { st: '首里',   walk: 15, cluster: 'naha' },
+  shikina:   { st: null, cluster: 'naha' },
+  oroku:     { st: '小祿',   walk: 3,  cluster: 'naha' },
+  senaga:    { st: null, cluster: 'naha' },
+  toyosaki:  { st: null, cluster: 'naha' },
+  urasoe:    { st: null, cluster: 'naha' },
+  makiminato:{ st: null, cluster: 'naha' },
+  motobu:    { st: null, cluster: 'north' },
+  yaedake:   { st: null, cluster: 'north' },
+  nakijin:   { st: null, cluster: 'north' },
+  kouri:     { st: null, cluster: 'north' },
+  nago:      { st: null, cluster: 'north' },
+  onna:      { st: null, cluster: 'central' },
+  yomitan:   { st: null, cluster: 'central' },
+  chatan:    { st: null, cluster: 'central' }
+};
+
+/* 具體採購門市（購物項目 → 門市 → 排入每日行程） */
+const STORES = {
+  donki:        { name: '唐吉訶德 國際通店（24hr）', zone: 'kokusai', lat: 26.2152, lng: 127.6858, stay: 60, open: 0, close: 1440,
+    note: '24小時營業＋免稅（同店單日滿5,000円）：藥妝、零食、酒類、雜貨一次掃齊。深夜與清晨人最少；退稅請帶護照，結帳後密封袋別拆', links: { g: 'ドン・キホーテ 国際通り店', o: 'https://www.donki.com/' } },
+  okashigoten:  { name: '御菓子御殿 國際通松尾店', zone: 'kokusai', lat: 26.2133, lng: 127.6815, stay: 25, open: 540, close: 1320,
+    note: '紅芋塔本舖直營：現場常有試吃，配合航班可請店家給保冷袋；首里城造型門面本身就好拍', links: { g: '御菓子御殿 国際通り松尾店', o: 'https://www.okashigoten.co.jp/' } },
+  washita:      { name: 'わした本店（沖繩縣物產公社）', zone: 'kencho', lat: 26.2131, lng: 127.6801, stay: 40, open: 600, close: 1260,
+    note: '全沖繩物產一次到位：調味料、雪鹽系列、泡盛、香檬製品最齊，比零散店家好比價；縣廳前站步行3分', links: { g: 'わしたショップ 国際通り本店', o: 'https://www.washita.co.jp/' } },
+  makishi_mkt:  { name: '第一牧志公設市場・市場本通', zone: 'makishi', lat: 26.2143, lng: 127.6875, stay: 50, open: 480, close: 1200, closedDow: [0],
+    note: '乾貨海產與黑糖在市場買最實在，可試吃再決定。⚠️每月第4個週日公休——1/24回程日適逢公休，請排在其他天', links: { g: '第一牧志公設市場' } },
+  kokusai_st:   { name: '國際通商店街（伴手禮・工藝各店）', zone: 'kokusai', lat: 26.2155, lng: 127.6865, stay: 60, open: 600, close: 1320,
+    note: '1.6公里伴手禮大街：金楚糕、T恤、琉球玻璃邊走邊比價；1/24（日）12:00-18:00步行者天國封街，逛街最舒服但車輛止步', links: { g: '国際通り' } },
+  ryubo:        { name: 'RYUBO 百貨（縣廳前站直結）', zone: 'kencho', lat: 26.2128, lng: 127.6790, stay: 45, open: 600, close: 1260,
+    note: '縣廳前站直結的老牌百貨：地下食品街的和菓子與熟食有質感，瑞泉古酒等縣產酒專櫃齊全，雨天備案首選', links: { g: 'デパートリウボウ' } },
+  parco:        { name: '浦添 PARCO CITY', zone: 'urasoe', lat: 26.2510, lng: 127.6935, stay: 100, open: 600, close: 1320,
+    note: '沖繩最大複合商場（10:00開門）：潮牌服飾集中2-3F、1F サンエー超市掃零食最便宜；滿5,000円退稅帶護照。回程戰利品多，直接搭計程車回飯店（約1,500円）', links: { g: 'サンエー浦添西海岸パルコシティ', o: 'https://www.parcocity.jp/' } },
+  aquashop:     { name: '美麗海水族館 紀念品店（館內）', zone: 'motobu', lat: 26.6942, lng: 127.8780, stay: 20, open: 510, close: 1050,
+    note: '鯨鯊布偶館內限定款最齊——北部包車日參觀完順手買，錯過沒有第二次', links: { g: '沖縄美ら海水族館' } },
+  cvs:          { name: '飯店周邊超商（LAWSON／全家）', zone: 'kokusai', lat: 26.2140, lng: 127.6845, stay: 10, close: 1440,
+    note: 'さんぴん茶與罐裝麥根沙士當場喝最讚（液體不可手提上機）', links: { g: 'ローソン 松尾一丁目' } }
+};
+
+/* 各項目補充：座標／生活圈／建議停留分鐘（含排隊與緩衝的保守值）；購物項目 → 門市 */
+const META = {
+  /* 景點 */
+  s01: { lat: 26.6942, lng: 127.8780, zone: 'motobu',   stay: 150, rec: 97, open: 510, close: 1020 },
+  s02: { lat: 26.6420, lng: 127.9200, zone: 'yaedake',  stay: 75,  rec: 93, open: 480, close: 1050 },
+  s03: { lat: 26.6910, lng: 127.9296, zone: 'nakijin',  stay: 60,  rec: 81, open: 480, close: 1050 },
+  s04: { lat: 26.6930, lng: 128.0180, zone: 'kouri',    stay: 50,  rec: 82 },
+  s05: { lat: 26.2264, lng: 127.6862, zone: 'tomari',   stay: 190, rec: 92, open: 480, close: 900 },
+  s06: { lat: 26.2207, lng: 127.6668, zone: 'naminoue', stay: 45,  rec: 78 },
+  s07: { lat: 26.2170, lng: 127.7195, zone: 'shuri',    stay: 120, rec: 88, open: 510, close: 1050 },
+  s08: { lat: 26.2145, lng: 127.6905, zone: 'tsuboya',  stay: 60,  rec: 82, open: 600, close: 1080 },
+  s09: { lat: 26.1786, lng: 127.6442, zone: 'senaga',   stay: 90,  rec: 90, open: 600 },
+  s10: { lat: 26.1592, lng: 127.6500, zone: 'toyosaki', stay: 90,  rec: 80, open: 540, close: 1230 },
+  s11: { lat: 26.5049, lng: 127.8507, zone: 'onna',     stay: 45,  rec: 87, open: 480, close: 1080 },
+  s12: { lat: 26.4400, lng: 127.7120, zone: 'yomitan',  stay: 45,  rec: 76 },
+  s13: { lat: 26.3167, lng: 127.7561, zone: 'chatan',   stay: 120, rec: 84, open: 600 },
+  s14: { lat: 26.2167, lng: 127.6893, zone: 'makishi',  stay: 75,  rec: 83, open: 720 },
+  s15: { lat: 26.2040, lng: 127.7010, zone: 'shikina',  stay: 60,  rec: 74, open: 540, close: 1020, closedDow: [3] },
+  /* 餐飲 */
+  f01: { lat: 26.2135, lng: 127.6898, zone: 'tsuboya',  stay: 70, rec: 93, open: 660, close: 990 },
+  f02: { lat: 26.2175, lng: 127.7212, zone: 'shuri',    stay: 50, rec: 86, open: 690, close: 840, closedDow: [0] },
+  f03: { lat: 26.6580, lng: 127.8980, zone: 'motobu',   stay: 50, rec: 90, open: 660, close: 1020, closedDow: [3] },
+  f04: { lat: 26.6415, lng: 127.9345, zone: 'yaedake',  stay: 50, rec: 85, open: 660, close: 900, closedDow: [1, 2] },
+  f05: { lat: 26.3230, lng: 127.7450, zone: 'chatan',   stay: 50, rec: 84, open: 630, close: 1140 },
+  f06: { lat: 26.2137, lng: 127.6795, zone: 'kencho',   stay: 90, rec: 92, open: 690, close: 1380 },
+  f07: { lat: 26.2172, lng: 127.6905, zone: 'makishi',  stay: 100, rec: 89, open: 1020, close: 1440 },
+  f08: { lat: 26.5090, lng: 127.8590, zone: 'onna',     stay: 90, rec: 91, open: 660, close: 1320 },
+  f09: { lat: 26.2146, lng: 127.6878, zone: 'makishi',  stay: 90, rec: 87, open: 660, close: 1380 },
+  f11: { lat: 26.5760, lng: 127.9640, zone: 'nago',     stay: 80, rec: 86, open: 660, close: 1260 },
+  f12: { lat: 26.2166, lng: 127.6898, zone: 'makishi',  stay: 100, rec: 90, open: 1020, close: 1440 },
+  f13: { lat: 26.2213, lng: 127.6950, zone: 'asato',    stay: 90, rec: 86, open: 1050, close: 1440 },
+  f14: { lat: 26.2137, lng: 127.6885, zone: 'makishi',  stay: 60, rec: 82, open: 660, close: 1200 },
+  f15: { lat: 26.2142, lng: 127.6874, zone: 'makishi',  stay: 90, rec: 82, open: 480, close: 1140, closedDow: [0] },
+  f16: { lat: 26.2287, lng: 127.6807, zone: 'tomari',   stay: 45, rec: 88, open: 420, close: 900 },
+  f17: { lat: 26.2130, lng: 127.6720, zone: 'kencho',   stay: 75, rec: 85, open: 660, close: 1440 },
+  f18: { lat: 26.2145, lng: 127.6840, zone: 'kokusai',  stay: 50, rec: 80, open: 660, close: 1380 },
+  f19: { lat: 26.2193, lng: 127.6913, zone: 'makishi',  stay: 45, rec: 81, open: 540, close: 1320 },
+  f20: { lat: 26.2095, lng: 127.6923, zone: 'yogi',     stay: 40, rec: 79, open: 540, close: 1200 },
+  f21: { lat: 26.1786, lng: 127.6440, zone: 'senaga',   stay: 70, rec: 84, open: 600, close: 1140 },
+  f22: { lat: 26.2710, lng: 127.7190, zone: 'makiminato', stay: 50, rec: 83, open: 690, close: 1080 },
+  f23: { lat: 26.6605, lng: 127.9040, zone: 'motobu',   stay: 60, rec: 88, open: 690, close: 1110, closedDow: [1, 2] },
+  f24: { lat: 26.3250, lng: 127.7440, zone: 'chatan',   stay: 60, rec: 81, open: 600, close: 1230 },
+  f25: { lat: 26.2143, lng: 127.6872, zone: 'makishi',  stay: 25, rec: 89, open: 420, close: 1020 },
+  f26: { lat: 26.2138, lng: 127.6862, zone: 'makishi',  stay: 60, rec: 84, open: 540, close: 850 },
+  f27: { lat: 26.2160, lng: 127.6880, zone: 'makishi',  stay: 25, rec: 85, open: 600, close: 1350 },
+  f28: { lat: 26.2242, lng: 127.6877, zone: 'tomari',   stay: 35, rec: 83, open: 660, close: 1260 },
+  f29: { lat: 26.2157, lng: 127.6875, zone: 'makishi',  stay: 45, rec: 84, open: 660, close: 1440 },
+  f30: { lat: 26.1934, lng: 127.6772, zone: 'oroku',    stay: 50, rec: 79, open: 660, close: 1440 },
+  /* 購物 → 門市 */
+  p01: { store: 'okashigoten', rec: 95, img: '御菓子御殿 紅いもタルト' },
+  p02: { store: 'kokusai_st',  rec: 84, img: '新垣ちんすこう' },
+  p03: { store: 'washita',     rec: 88, img: '雪塩ちんすこう' },
+  p04: { store: 'washita',     rec: 82, img: '雪塩ふわわ' },
+  p05: { store: 'donki',       rec: 83, img: 'ちんすこうショコラ' },
+  p06: { store: 'donki',       rec: 85, img: 'ロイズ石垣島 黒糖チョコレート' },
+  p07: { store: 'kokusai_st',  rec: 80, img: '35COFFEE' },
+  p08: { store: 'aquashop',    rec: 87, img: '美ら海水族館 ジンベエザメ ぬいぐるみ' },
+  p09: { store: 'washita',     rec: 92, img: '石垣島ラー油 辺銀食堂' },
+  p10: { store: 'makishi_mkt', rec: 84, img: '沖縄 乾燥もずく アーサ' },
+  p11: { store: 'washita',     rec: 83, img: 'シークヮーサー 原液 山原' },
+  p12: { store: 'donki',       rec: 81, img: '沖縄そば 乾麺' },
+  p13: { store: 'donki',       rec: 79, img: 'A1ソース' },
+  p14: { store: 'makishi_mkt', rec: 80, img: '多良間島 純黒糖' },
+  p15: { store: 'donki',       rec: 72, img: 'スパム 沖縄' },
+  p16: { store: 'makishi_mkt', rec: 76, img: 'コーレーグース' },
+  p17: { store: 'donki',       rec: 86, img: '泡盛 残波' },
+  p18: { store: 'ryubo',       rec: 78, img: '瑞泉 古酒' },
+  p19: { store: 'donki',       rec: 81, img: 'オリオンビアナッツ' },
+  p20: { store: 'donki',       rec: 90, img: '休足時間' },
+  p21: { store: 'donki',       rec: 85, img: 'イブクイック' },
+  p22: { store: 'donki',       rec: 84, img: '太田胃散' },
+  p23: { store: 'donki',       rec: 82, img: '龍角散のど飴' },
+  p24: { store: 'kokusai_st',  rec: 85, img: '琉球ガラス' },
+  p25: { store: 'kokusai_st',  rec: 86, img: 'シーサー 壺屋焼' },
+  p26: { store: 'kokusai_st',  rec: 83, img: 'やちむん 器' },
+  p27: { store: 'kokusai_st',  rec: 77, img: 'かりゆしウェア' },
+  p28: { store: 'kokusai_st',  rec: 79, img: '海人Tシャツ' },
+  p29: { store: 'parco',       rec: 88, img: 'パルコシティ 沖縄' },
+  p30: { store: 'parco',       rec: 89, img: '雪塩ちっぷす' },
+  p31: { store: 'parco',       rec: 78, img: '沖縄そば カップ麺' },
+  p32: { store: 'parco',       rec: 77, img: '黒糖しょうが' },
+  p33: { store: 'cvs',         rec: 82, img: 'さんぴん茶' },
+  p34: { store: 'okashigoten', rec: 76, img: '御菓子御殿 紅芋スイーツ' }
+};
+
+/* 免費散步錨點的座標與停留 */
+const ANCHOR_META = {
+  kokusai: { lat: 26.2155, lng: 127.6866, zone: 'kokusai', stay: 60 },
+  naha:    { lat: 26.2210, lng: 127.6675, zone: 'naminoue', stay: 50 },
+  north:   { lat: 26.7048, lng: 127.8800, zone: 'motobu',  stay: 50 },
+  central: { lat: 26.3140, lng: 127.7545, zone: 'chatan',  stay: 50 }
+};

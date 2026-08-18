@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- 首頁本身不要被快取，否則手機會一直開到舊版（資源檔靠 ?v= 版本號快取即可） -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>2027 沖繩五天四夜｜跨世代家庭客製行程規劃</title>
+<meta name="description" content="勾選想去的景點與美食，自動排出專屬的沖繩五天四夜行程。2027/1/20-1/24，六大人跨世代家庭・不自駕，定點入住國際通。">
+<meta property="og:title" content="2027 沖繩五天四夜｜跨世代家庭客製行程規劃">
+<meta property="og:description" content="六人同行：勾選 3 個以上景點＋6 家以上美食，一鍵產生含包車、單軌與計程車拆分試算的客製行程表">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌺</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css?v=20260818b">
+</head>
+<body>
+
+<!-- ══════════ 勾選頁 ══════════ -->
+<div id="pick">
+  <header class="hero">
+    <div class="wrap">
+      <h1>🌺 2027 沖繩五天四夜</h1>
+      <div class="sub">2027/1/20（三）～ 1/24（日）｜桃園 ⇄ 那霸（航班示意）｜🏨 嘉新酒店 Hotel Collective（國際通）｜👨‍👩‍👧‍👦 六大人跨世代・不自駕</div>
+      <div class="howto">
+        💙 <b>使用方式：</b>先在下方卡片填上<b>實際航班時間</b>（報到、接送與整份行程會自動重算），再把想去的打勾，行程自動排好——含每段交通（單軌／3人×2台計程車／北部・中部包車）、出發抵達時間與停留試算！
+        規則很簡單 → <b>景點至少選 3 個</b>、<b>美食至少選 6 家</b>（購物清單想買什麼也可以勾，選填）。
+        全部選完按下方「✨ 產生專屬行程」。
+        <br>🗺️ <b>找店小技巧：</b>按「📍 Google地圖・App直達」，手機會直接開 Google 地圖定位到那一家，不用自己搜尋、不會跑錯分店；電話鈕點一下就複製，貼進地圖搜尋或直接撥打都行。
+      </div>
+      <div class="info-cards">
+        <div class="ic"><div class="ic-t">✈️ 去程 1/20（三）｜點時間可修改</div>
+          <label>出發 <input type="time" id="obDep" class="fl-in" value="09:30"></label> 桃園機場<br>
+          <label>抵達 <input type="time" id="obArr" class="fl-in" value="11:55"></label> 那霸機場（日本時間）</div>
+        <div class="ic"><div class="ic-t">✈️ 回程 1/24（日）｜點時間可修改</div>
+          <label>出發 <input type="time" id="ibDep" class="fl-in" value="16:00"></label> 那霸機場<br>
+          <label>抵達 <input type="time" id="ibArr" class="fl-in" value="16:35"></label> 桃園機場（台灣時間）</div>
+        <div class="ic"><div class="ic-t">🏨 住宿（定點四晚）</div>嘉新酒店 Hotel Collective<br>
+          <a href="https://www.google.com/maps/search/?api=1&query=%E3%83%9B%E3%83%86%E3%83%AB%E3%82%B3%E3%83%AC%E3%82%AF%E3%83%86%E3%82%A3%E3%83%96%20%E9%82%A3%E8%A6%87" target="_blank" rel="noopener">📍 Google地圖</a>
+          <a href="https://hotelcollective.jp/" target="_blank" rel="noopener">🌐 官網</a></div>
+        <div class="ic"><div class="ic-t">🌤 一月的沖繩</div>全年最冷 14~20°C・海風強勁<br>洋蔥式穿搭＋防風外套＋毛帽必備</div>
+      </div>
+      <div class="holiday-banner">🌸 小提醒：1月下旬是全日本最早的櫻花季（八重岳櫻花祭）與座頭鯨洄游季——這兩樣都是本行程限定的季節彩蛋。1/24（日）回程日國際通 12:00-18:00 封街為步行者天國、牧志公設市場適逢第4個週日公休，行程會自動把採買排在其他天。六人移動原則：市區「3人×2台計程車」拆分、北部與中部包 10 人座海獅（建議中文司機，提前 2-3 個月預訂）。</div>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="wrap">
+      <div id="searchrow">
+        <span class="s-ico">🔍</span>
+        <input id="searchBox" type="text" autocomplete="off" placeholder="搜尋店名／商品／日文／區域…（例：沖繩麵、紅芋塔、美麗海）">
+        <button id="searchClear" class="s-clear" style="display:none" aria-label="清除搜尋">✕</button>
+      </div>
+      <div id="tabs"></div>
+      <button id="filterToggle" aria-expanded="false">🎛 篩選與排序 ▼</button>
+      <div id="filterwrap">
+        <div id="subchips"></div>
+        <div id="storechips"></div>
+        <div id="regionchips"></div>
+        <div id="sortrow"></div>
+        <div id="toolrow"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap"><div id="draftpanel"></div></div>
+
+  <main class="wrap">
+    <div id="grid"></div>
+  </main>
+
+  <div id="bar"></div>
+</div>
+
+<!-- ══════════ 結果頁 ══════════ -->
+<div id="result" style="display:none">
+  <div class="wrap" id="result-inner"></div>
+</div>
+
+<script src="assets/data.js?v=20260818b"></script>
+<script src="assets/app.js?v=20260818b"></script>
+</body>
+</html>
