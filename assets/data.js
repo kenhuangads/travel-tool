@@ -7,7 +7,7 @@
 
 const CONFIG = {
   baseUrl: 'https://kenhuangads.github.io/travel-tool/',
-  build: '20260818c',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
+  build: '20260818d',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
   rateNote: '價格換算基準：100日圓 ≈ NT$21（2026年中匯率概估）。所有金額為估算平均範圍，實際以現場與當日匯率為準。',
   minSpots: 3,
   minFoods: 6,
@@ -544,25 +544,71 @@ const FLIGHT_NOTE = '航班時間以航空公司最終公告／票面為準；�
    （座標與時間皆為保守估算，供交通與時間軸試算參考）
    ══════════════════════════════════════════════ */
 
-/* ── 住宿基地三選一（依研究報告評估；切換後距離與交通全部以它為圓心重算） ── */
+/* ── 住宿基地（可於「住宿」分頁單選；切換後距離與交通全部以它為圓心重算。
+      房價為 2027/1 雙人房每晚概估，實際以訂房平台即時價為準 ── */
 const HOTELS = {
   collective: {
     name: '嘉新酒店 Hotel Collective', short: '嘉新酒店（國際通正中心）', lat: 26.2137, lng: 127.6830, zone: 'kokusai',
-    area: '國際通正中心（縣廳前站步行約7分）',
+    area: '國際通正中心（縣廳前站步行約7分）', rec: 93, est: 7000, tag: '長輩首選・度假村規格',
+    price: '雙人房每晚約NT$5,200-9,400（25,000-45,000円）',
     pick: '長輩首選：客房寬敞、隔音優異，下樓即國際通，度假村規格的空間尺度能吸收旅途疲憊',
     note: '房價屬市區頂端；週日步行者天國（12:00-18:00）期間計程車需繞至側街上下車',
     links: { g: 'ホテルコレクティブ 那覇', o: 'https://hotelcollective.jp/' } },
   tokyu: {
     name: '東急 Stay 沖繩那霸', short: '東急Stay（壺川・機能派）', lat: 26.2055, lng: 127.6790, zone: 'tsubogawa',
-    area: '壺川站與旭橋站之間（壺川站步行約6分）',
+    area: '壺川站與旭橋站之間（壺川站步行約6分）', rec: 88, est: 4200, tag: '洗脫烘＋微波爐・年輕組',
+    price: '雙人房每晚約NT$2,900-5,500（14,000-26,000円）',
     pick: '年輕夫婦首選：房內標配洗脫烘衣機＋微波爐，樓下就是唐吉訶德與全家，冬季少帶一半衣物',
     note: '環保政策不每日全面打掃（僅換毛巾清垃圾）；入口位於斜坡，拖行李較費力',
     links: { g: '東急ステイ沖縄那覇', o: 'https://www.tokyustay.co.jp/' } },
+  hyatt: {
+    name: 'Hyatt Regency 那霸沖繩', short: '凱悅（櫻坂・國際五星）', lat: 26.2140, lng: 127.6925, zone: 'makishi',
+    area: '牧志・櫻坂通旁（國際通步行約3分）', rec: 90, est: 6500, tag: '國際五星・鬧中取靜',
+    price: '雙人房每晚約NT$4,800-8,800（23,000-42,000円）',
+    pick: '國際五星規格：服務細緻、餐飲水準高，位置鬧中取靜——重視服務感與睡眠品質的升級選擇',
+    note: '房價屬高價帶；戶外泳池冬季非游泳用途',
+    links: { g: 'ハイアットリージェンシー那覇沖縄', o: 'https://www.hyatt.com/' } },
+  blossom: {
+    name: 'JR九州飯店 Blossom 那霸', short: 'JR Blossom（牧志・高評價）', lat: 26.2186, lng: 127.6903, zone: 'makishi',
+    area: '牧志（國際通沿線、牧志站步行約4分）', rec: 89, est: 4600, tag: '2017新館・質感高評價',
+    price: '雙人房每晚約NT$3,400-6,100（16,000-29,000円）',
+    pick: '2017年開幕的高評價新館：同價帶中房間質感與隔音出眾、家庭房型選擇多，國際通沿線位置便利',
+    note: '旺季房價波動大，越早訂越划算',
+    links: { g: 'JR九州ホテルブラッサム那覇', o: 'https://www.jrk-hotels.co.jp/' } },
+  rihga: {
+    name: 'Rihga Royal Gran 沖繩', short: '麗嘉皇家Gran（旭橋站直結）', lat: 26.2120, lng: 127.6745, zone: 'asahibashi',
+    area: '旭橋站直結（縣廳前一站；往機場單軌11分）', rec: 87, est: 5600, tag: '單軌站直結・動線最省力',
+    price: '雙人房每晚約NT$4,000-7,400（19,000-35,000円）',
+    pick: '單軌站直結的高樓精品飯店：雨天進出免撐傘、往機場一車直達，房間寬敞安靜視野好——長輩動線最省力的選擇',
+    note: '周邊夜間較安靜，覓食多走到縣廳前・國際通口（步行約8分）',
+    links: { g: 'リーガロイヤルグラン沖縄', o: 'https://www.rihga.co.jp/' } },
+  almont: {
+    name: 'Almont Hotel 那霸縣廳前', short: 'Almont（縣廳前・大浴場）', lat: 26.2122, lng: 127.6795, zone: 'kencho',
+    area: '久茂地（縣廳前站步行約3分）', rec: 86, est: 3100, tag: '大浴場・高CP',
+    price: '雙人房每晚約NT$2,100-4,000（10,000-19,000円）',
+    pick: '高CP實力派：頂樓大浴場讓長輩每天泡湯舒緩鐵腿，沖繩料理早餐評價穩定，位置與價格的平衡點',
+    note: '客房偏緊湊；大浴場尖峰時段人較多',
+    links: { g: 'アルモントホテル那覇県庁前', o: 'https://www.almont.jp/' } },
+  loisir: {
+    name: 'Loisir Hotel 那霸', short: 'Loisir（天然溫泉・度假感）', lat: 26.2110, lng: 127.6625, zone: 'nishi',
+    area: '西町・三重城（國際通計程車約6分）', rec: 85, est: 4300, tag: '天然溫泉・長輩泡湯',
+    price: '雙人房每晚約NT$3,200-5,900（15,000-28,000円）',
+    pick: '市區少見的天然溫泉旅館：「三重城溫泉」讓長輩每天泡湯是最療癒的行程，度假村氛圍、家庭客層友善',
+    note: '離國際通與單軌較遠，進出以計程車為主；訂房請留意溫泉大浴場適用房案',
+    links: { g: 'ロワジールホテル那覇', o: 'https://www.solarehotels.com/' } },
+  jalcity: {
+    name: 'Hotel JAL City 那霸', short: 'JAL City（國際通正中央）', lat: 26.2153, lng: 127.6867, zone: 'kokusai',
+    area: '牧志（國際通正中央）', rec: 84, est: 3600, tag: '位置無敵・安定牌',
+    price: '雙人房每晚約NT$2,500-4,600（12,000-22,000円）',
+    pick: '位置無敵的安定牌：出門就是國際通鬧區正中心，藥妝伴手禮店零距離，商務級品質穩定不踩雷',
+    note: '房型偏緊湊、退房尖峰大廳人多；重視空間的長輩可考慮嘉新或麗嘉Gran',
+    links: { g: 'ホテルJALシティ那覇', o: 'https://www.okinawa-jalcity.co.jp/' } },
   hewitt: {
     name: '那霸 Hewitt 度假村', short: 'Hewitt（安里・高樓景觀）', lat: 26.2222, lng: 127.6958, zone: 'asato',
-    area: '安里站旁（步行約4分），國際通尾端步行3分',
+    area: '安里站旁（步行約4分），國際通尾端步行3分', rec: 82, est: 3800, tag: '高樓景觀・年輕組',
+    price: '雙人房每晚約NT$2,700-5,000（13,000-24,000円）',
     pick: '設計新穎、高樓層景觀與自製漢堡早餐出色，房價比嘉新親和——適合年輕組',
-    note: '低樓層走廊較暗、衛浴偏小、電梯與早餐尖峰擁擠——長輩入住建議優先考慮前兩間',
+    note: '低樓層走廊較暗、衛浴偏小、電梯與早餐尖峰擁擠——長輩入住建議優先考慮其他選項',
     links: { g: 'ヒューイットリゾート那覇', o: 'https://hewitt-resort.com/' } }
 };
 
@@ -600,6 +646,8 @@ const ZONES = {
   yomitan:   { st: null, cluster: 'central' },
   chatan:    { st: null, cluster: 'central' },
   tsubogawa: { st: '壺川', walk: 6,  cluster: 'kokusai' },
+  asahibashi:{ st: '旭橋', walk: 2,  cluster: 'kokusai' },
+  nishi:     { st: '旭橋', walk: 13, cluster: 'kokusai' },
   ginowan:   { st: null, cluster: 'central' }
 };
 

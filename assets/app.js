@@ -60,6 +60,15 @@
   });
   const matchQ = (it, q) => !q || q.toLowerCase().split(/\s+/).every(t => it._hay.includes(t));
 
+  /* 住宿卡片清單（單選：點擊設為住宿基地；距離以國際通中心「むつみ橋交差点」為基準） */
+  const KOKUSAI_CENTER = { lat: 26.2155, lng: 127.6866 };
+  const HOTEL_LIST = Object.entries(HOTELS).map(([k, h], i) => Object.assign({}, h, {
+    id: 'h_' + k, hkey: k, kind: 'hotel', cluster: 'kokusai', _idx: 9000 + i,
+    desc: h.pick + '。⚠️ ' + h.note + '。',
+    _km: havKm(KOKUSAI_CENTER, h),
+    _hay: [h.name, h.short, h.area, h.pick, h.note, h.tag || '', h.price || ''].join(' ').toLowerCase()
+  }));
+
   /* 同品牌分店索引：讓旅客能依當天動線改選最近的一家 */
   const BRANDS = {};
   ALL.forEach(it => { if (it.brand) (BRANDS[it.brand] = BRANDS[it.brand] || []).push(it); });
@@ -190,6 +199,7 @@
   };
 
   function catInfo(it) {
+    if (it.kind === 'hotel') return { label: '住宿', icon: '🏨' };
     if (it.kind === 'spot') return { label: '景點', icon: '🗼' };
     if (it.kind === 'food') return FOOD_CATS[it.cat];
     return SHOP_CATS[it.cat];
@@ -1286,11 +1296,13 @@
   function cardHtml(it) {
     const ci = catInfo(it);
     const cl = CLUSTERS[it.cluster];
-    const on = state.sel.has(it.id);
+    const on = it.kind === 'hotel' ? (state.hotel || 'collective') === it.hkey : state.sel.has(it.id);
     const priceLine = it.price ? `<div class="meta">💰 ${esc(it.price)}</div>` : '';
     const waitLine = it.wait ? `<div class="meta sub">⏱ ${esc(it.wait)}</div>` : '';
     const buyLine = it.buy ? `<div class="meta sub">🏬 ${esc(it.buy)}</div>` : '';
-    const distTxt = it._km < 0.55 ? '飯店步行圈' : '距飯店約' + kmTxt(it._km);
+    const distTxt = it.kind === 'hotel'
+      ? (it._km < 0.4 ? '國際通中心步行圈' : '距國際通中心約' + kmTxt(it._km))
+      : (it._km < 0.55 ? '飯店步行圈' : '距飯店約' + kmTxt(it._km));
     const extraLine = it.kind === 'shop'
       ? `<div class="meta sub">🧭 ${distTxt}｜🛒 行程門市：${esc(it._store ? it._store.name : it.buy || '')}</div>`
       : `<div class="meta sub">🧭 ${distTxt}${it.kind === 'spot' && it.stay ? `｜⏳ 建議停留約${durTxt(it.stay)}` : ''}</div>`;
@@ -1309,7 +1321,7 @@
         <span class="badge cat">${ci.icon} ${esc(ci.label)}</span>
         ${it.tag ? `<span class="badge tag">${esc(it.tag)}</span>` : ''}
         ${safeBadge}
-        <span class="tick">${on ? '✓ 已選' : '＋ 選擇'}</span>
+        <span class="tick">${it.kind === 'hotel' ? (on ? '✓ 住宿基地' : '🏨 設為基地') : (on ? '✓ 已選' : '＋ 選擇')}</span>
       </div>
       <h3>${esc(it.name)}${it.jp && it.jp !== it.name ? ` <small>${esc(it.jp)}</small>` : ''}</h3>
       <div class="meta sub">📌 ${esc(it.area || it.buy || '')}</div>
@@ -1321,6 +1333,15 @@
 
   /* 目前篩選條件下的清單（勾選頁與智慧推薦共用同一份結果） */
   function filteredList() {
+    if (state.tab === 'hotel') {
+      let hl = HOTEL_LIST;
+      if (state.q) hl = hl.filter(i => matchQ(i, state.q));
+      hl = hl.slice();
+      if (state.sort === 'price') hl.sort((a, b) => (a.est || 0) - (b.est || 0) || a._idx - b._idx);
+      else if (state.sort === 'dist') hl.sort((a, b) => a._km - b._km || a._idx - b._idx);
+      else hl.sort((a, b) => (b.rec || 0) - (a.rec || 0) || a._idx - b._idx);
+      return hl;
+    }
     let list;
     if (state.tab === 'spot') list = SPOTS;
     else if (state.tab === 'food') list = state.foodCat === 'all' ? FOODS : FOODS.filter(f => f.cat === state.foodCat);
@@ -1420,6 +1441,7 @@
       `<button class="tool" id="clearBtn"${n ? '' : ' disabled'}>🧹 全部清除${n ? `（${n}）` : ''}</button>` +
       `<button class="tool ${state.draftOpen ? 'on' : ''}" id="draftBtn">📂 行程草稿（${vs.length}）</button>`;
     $('#smartBtn').addEventListener('click', () => {
+      if (state.tab === 'hotel') { toast('住宿為單選——直接點卡片即可設為住宿基地（推薦度已排序）'); return; }
       const picked = smartPick();
       if (!picked.length) { toast('此篩選條件下已經沒有可再推薦的項目了'); return; }
       const kindTxt = state.tab === 'spot' ? '景點' : state.tab === 'food' ? '美食' : '購物';
@@ -1472,8 +1494,8 @@
     /* 搜尋中：各分頁顯示命中數，方便跨分頁查詢 */
     const hit = list => list.filter(i => matchQ(i, state.q)).length;
     const tabs = state.q
-      ? [['spot', `🗼 景點（${hit(SPOTS)} 筆符合）`], ['food', `🍜 美食（${hit(FOODS)} 筆符合）`], ['shop', `🛍️ 購物（${hit(SHOPS)} 筆符合）`]]
-      : [['spot', `🗼 景點（${SPOTS.length}）`], ['food', `🍜 美食（${FOODS.length}）`], ['shop', `🛍️ 購物（${SHOPS.length}）`]];
+      ? [['spot', `🗼 景點（${hit(SPOTS)} 筆符合）`], ['food', `🍜 美食（${hit(FOODS)} 筆符合）`], ['shop', `🛍️ 購物（${hit(SHOPS)} 筆符合）`], ['hotel', `🏨 住宿（${hit(HOTEL_LIST)} 筆符合）`]]
+      : [['spot', `🗼 景點（${SPOTS.length}）`], ['food', `🍜 美食（${FOODS.length}）`], ['shop', `🛍️ 購物（${SHOPS.length}）`], ['hotel', `🏨 住宿（${HOTEL_LIST.length}）`]];
     $('#tabs').innerHTML = tabs.map(([k, t]) =>
       `<button class="tab ${state.tab === k ? 'on' : ''}" data-tab="${k}">${t}</button>`).join('');
 
@@ -1508,11 +1530,19 @@
     $('#storechips').innerHTML = stc;
     $('#storechips').style.display = stc ? '' : 'none';
 
-    $('#regionchips').innerHTML = `<button class="chip rg ${state.region === 'all' ? 'on' : ''}" data-rg="all">全部區域</button>` +
-      Object.entries(CLUSTERS).map(([k, v]) =>
-        `<button class="chip rg ${state.region === k ? 'on' : ''}" data-rg="${k}" style="--c:${v.color}">${v.label}</button>`).join('');
+    if (state.tab === 'hotel') {
+      $('#regionchips').innerHTML = '';
+      $('#regionchips').style.display = 'none';
+    } else {
+      $('#regionchips').style.display = '';
+      $('#regionchips').innerHTML = `<button class="chip rg ${state.region === 'all' ? 'on' : ''}" data-rg="all">全部區域</button>` +
+        Object.entries(CLUSTERS).map(([k, v]) =>
+          `<button class="chip rg ${state.region === k ? 'on' : ''}" data-rg="${k}" style="--c:${v.color}">${v.label}</button>`).join('');
+    }
 
-    const sorts = [['rec', '⭐ 推薦度'], ['price', '💰 價格低→高'], ['dist', '🏨 離飯店近→遠']];
+    const sorts = state.tab === 'hotel'
+      ? [['rec', '⭐ 推薦度'], ['price', '💰 房價低→高'], ['dist', '🚶 離國際通近→遠']]
+      : [['rec', '⭐ 推薦度'], ['price', '💰 價格低→高'], ['dist', '🏨 離飯店近→遠']];
     $('#sortrow').innerHTML = `<span class="sortlab">排序</span>` + sorts.map(([k, t]) =>
       `<button class="chip sort ${state.sort === k ? 'on' : ''}" data-sort="${k}">${t}</button>`).join('');
 
@@ -2661,6 +2691,15 @@
     });
   }
   function toggle(id, card) {
+    if (id && id.slice(0, 2) === 'h_') {
+      const k = id.slice(2);
+      if (!HOTELS[k]) return;
+      if ((state.hotel || 'collective') === k) { toast(`目前的住宿基地就是 ${HOTELS[k].name}`); return; }
+      state.hotel = k;
+      save(); applyHotel(); renderHeroCards(); renderGrid();
+      toast(`住宿基地已改為 ${hotelInfo().name}——所有距離與交通以它為圓心重新計算`);
+      return;
+    }
     if (state.sel.has(id)) { state.sel.delete(id); delete state.pins[id]; } else state.sel.add(id);
     const on = state.sel.has(id);
     card.classList.toggle('on', on);
