@@ -7,7 +7,7 @@
 
 const CONFIG = {
   baseUrl: 'https://kenhuangads.github.io/travel-tool/',
-  build: '20260818b',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
+  build: '20260818c',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
   rateNote: '價格換算基準：100日圓 ≈ NT$21（2026年中匯率概估）。所有金額為估算平均範圍，實際以現場與當日匯率為準。',
   minSpots: 3,
   minFoods: 6,
@@ -20,10 +20,8 @@ const CONFIG = {
   charter: {
     startMin: 510,            // 08:30 於飯店出發
     baseMins: 600,            // 基準 10 小時
-    costNT: 10500,            // 約 50,000 日圓 ≈ NT$10,500（6人合計、每人約NT$1,750）
-    costTxt: '約 48,000-53,000 日圓 ≈ NT$10,100-11,100（10小時基準・6人合計，每人約NT$1,700-1,850）',
-    overTxt: '超時費約每 30 分 3,500 日圓（≈NT$735），以現金支付司機',
-    label: '10人座豐田海獅（建議中文司機）'
+    overTxt: '超時費約每 30 分 3,500 日圓（≈NT$735），以現金支付司機'
+    /* 車型與費用依「同行人數」自動換算：見 app.js 的 charterInfo() */
   },
   holidayNote: '1月下旬是沖繩全年最冷的時期（約14-20°C）：東北季風與海風強勁、體感偏涼，全員請帶「防風」外套與毛帽，執行洋蔥式穿搭。這也是全日本最早的櫻花季（本部八重岳櫻花祭約1/16起）與座頭鯨洄游季。1/24（日）回程日適逢國際通「步行者天國」封街（12:00-18:00 主街禁行汽車），叫車請避開國際通主街；第一牧志公設市場當天適逢每月第4個週日公休。',
   trip: {
@@ -31,13 +29,15 @@ const CONFIG = {
     dates: '2027/1/20（三）～ 1/24（日）',
     outbound: { date: '2027/1/20（三）', from: '桃園國際機場', to: '那霸機場', airline: '航班以實際訂位為準' },
     inbound:  { date: '2027/1/24（日）', from: '那霸機場', to: '桃園國際機場', airline: '航班以實際訂位為準',
-      note: '預設為示意時間；直接在頁面修改航班時間後，報到、接送與整份行程會自動重算。日本時間比台灣快 1 小時。' },
-    hotel: {
-      name: '嘉新酒店 Hotel Collective',
-      area: '國際通正中心（縣廳前站步行約7分）｜六大人定點住宿、不換飯店。年輕夫婦若分宿東急Stay那霸（旭橋・步行約12分）視同同一集合據點',
-      links: { g: 'ホテルコレクティブ 那覇', o: 'https://hotelcollective.jp/' }
-    }
+      note: '預設為示意時間；直接在頁面修改航班時間後，報到、接送與整份行程會自動重算。日本時間比台灣快 1 小時。' }
   }
+};
+
+/* ── 出發機場（去程出發＝回程抵達） ─────────── */
+const AIRPORTS = {
+  tpe: { name: '桃園國際機場', short: '桃園' },
+  rmq: { name: '台中國際機場', short: '台中' },
+  khh: { name: '高雄小港機場', short: '高雄' }
 };
 
 const CLUSTERS = {
@@ -285,7 +285,40 @@ const FOODS = [
   { id:'f30', kind:'food', cat:'ramen', name:'通堂拉麵 小祿本店', jp:'琉球新麺 通堂 小禄本店', cluster:'naha', area:'小祿（單軌小祿站旁）', slot:'meal', est:200,
     price:'拉麵約NT$170-250／碗（800-1,200円）', wait:'座位多、翻桌快，稍候即可',
     desc:'沖繩在地拉麵代表：「男味」豚骨濃郁、「女味」鹽味清爽，一家店滿足兩代口味。就在單軌小祿站旁，往瀨長島、機場或 AEON 順路的實力派一餐。',
-    tag:'男味女味雙湯頭・小祿站旁', links:{ g: '通堂 小禄本店' } }
+    tag:'男味女味雙湯頭・小祿站旁', links:{ g: '通堂 小禄本店' } },
+  /* ── 補強：高評價・高CP・在地名店 ── */
+  { id:'f31', kind:'food', cat:'izakaya', name:'ハイウェイ食堂', jp:'ハイウェイ食堂', cluster:'naha', flex:['naha','kokusai'], area:'泊（泊港步行約5分）', slot:'meal', est:160,
+    price:'定食約NT$130-190／人（600-900円）', wait:'在地食堂座位多，幾乎免排；深夜時段照樣開（以現場公告為準）',
+    desc:'開業超過半世紀的在地食堂傳奇：味噌湯定食、雜炒苦瓜與牛肉湯份量紮實、價格佛心，計程車司機與夜歸人的深夜飯堂。Day 1 深夜抵達、或賞鯨早班前想吃頓熱的，這裡最靠得住。',
+    tag:'高CP・深夜營業', links:{ g: 'ハイウェイ食堂 那覇' } },
+  { id:'f32', kind:'food', cat:'soba', name:'亀かめそば', jp:'亀かめそば', cluster:'naha', flex:['naha','kokusai'], area:'前島（美榮橋站步行約8分）', slot:'lunch', est:130,
+    price:'沖繩麵約NT$105-160／人（500-750円）', wait:'在地人氣店，尖峰稍候；賣完提早收',
+    desc:'那霸高CP沖繩麵代表：軟骨排堆好堆滿、湯頭柴魚香濃，價格比觀光區便宜三成以上，在地人跟計程車司機的口袋名單。離泊港近，賞鯨前後順路嗑一碗剛剛好。',
+    tag:'高CP・在地人氣', links:{ g: '亀かめそば 那覇' } },
+  { id:'f33', kind:'food', cat:'brunch', name:'味噌めしや まるたま', jp:'味噌めしや まるたま', cluster:'kokusai', flex:['kokusai','naha'], area:'泉崎（旭橋站步行約6分）', slot:'brunch', est:250,
+    price:'味噌湯定食約NT$210-290／人（1,000-1,400円）', wait:'早餐時段人氣高，建議一開店就到',
+    desc:'用百年味噌舖「玉那霸味噌」熬湯的定食專門店：味噌湯料多到像主菜，配島豆腐與現炊白飯，是冬天早晨最暖胃的一頓，長輩接受度極高。',
+    tag:'味噌湯定食・暖胃早餐', links:{ g: '味噌めしや まるたま' } },
+  { id:'f34', kind:'food', cat:'izakaya', name:'ゆうなんぎい', jp:'ゆうなんぎい', cluster:'kokusai', flex:['kokusai','naha'], area:'久茂地（國際通口）', slot:'dinner', est:520,
+    price:'沖繩料理定食約NT$420-630／人（2,000-3,000円）', wait:'老店排隊常態、不收預約：17:30 開店前到最穩',
+    desc:'1970年開業的沖繩家庭料理老舖：招牌「ゆうなんぎいA定食」一次吃遍滷三枚肉、花生豆腐、海帶滷物等十道經典手路菜，觀光客與在地人都認證的味覺教科書。※週日公休。',
+    tag:'家庭料理老舖・高評價', links:{ g: 'ゆうなんぎい 那覇' } },
+  { id:'f35', kind:'food', cat:'soba', name:'高江洲そば', jp:'高江洲そば', cluster:'naha', area:'浦添市伊祖（PARCO CITY 車程約7分）', slot:'lunch', est:170,
+    price:'ゆし豆腐そば約NT$140-210／人（650-1,000円）', wait:'在地排隊店，尖峰約15-30分',
+    desc:'「ゆし豆腐そば」始祖店：綿嫩的朧豆腐蓋滿整碗麵，湯頭溫潤順口，對長輩腸胃無敵友善。逛 PARCO CITY 那天的順路午餐首選。※週日公休。',
+    tag:'ゆし豆腐そば始祖', links:{ g: '高江洲そば' } },
+  { id:'f36', kind:'food', cat:'burger', name:'メキシコ（塔可專門店）', jp:'メキシコ', cluster:'central', area:'宜野灣市伊佐（往北谷途中順路）', slot:'lunch', est:130,
+    price:'塔可 4 個約NT$130（600円）', wait:'只賣塔可一味、現點現炸，翻桌快；公休以現場公告為準',
+    desc:'1977年開業的塔可專門店：菜單只有 Tacos 一項，現炸塔可皮酥香、肉餡與特製莎莎醬飽滿，四個六百円的佛心價數十年如一日。中部包車日往美國村的路上順路吃，高CP的沖繩美式體驗。',
+    tag:'塔可專門・高CP', links:{ g: 'メキシコ 宜野湾 タコス' } },
+  { id:'f37', kind:'food', cat:'ramen', name:'おでん東大（豬腳關東煮）', jp:'おでん東大', cluster:'kokusai', flex:['kokusai','naha'], area:'安里・榮町市場（安里站步行約3分）', slot:'supper', est:420,
+    price:'關東煮＋豬腳約NT$340-530／人（1,600-2,500円）', wait:'深夜排隊名店，開店前就有人排',
+    desc:'榮町市場的深夜傳奇：招牌「てびち」豬腳燉到膠質透亮、筷子一夾就化，配炙烤過的關東煮與麵線收尾。復古市場巷弄的昭和氛圍本身就是行程，適合年輕組深夜續攤。',
+    tag:'深夜豬腳關東煮・名物', links:{ g: 'おでん東大 栄町' } },
+  { id:'f38', kind:'food', cat:'steak', name:'ステーキハウス88 辻本店', jp:'ステーキハウス88 辻本店', cluster:'kokusai', flex:['kokusai','naha'], area:'辻（波上宮車程約3分）', slot:'dinner', est:520,
+    price:'牛排約NT$420-740／人（2,000-3,500円）', wait:'座位多相對好進，熱門時段稍候',
+    desc:'1955年創業的沖繩牛排另一巨頭：十多種部位任選、附湯沙拉麵包的老派美式套餐，與傑克牛排並列「沖繩牛排文化」雙雄——愛比較的家庭可以兩家都收。',
+    tag:'1955牛排老舖', links:{ g: 'ステーキハウス88 辻本店' } }
 ];
 
 /* ── 購物（34）─────────────────────────────── */
@@ -432,7 +465,60 @@ const SHOPS = [
   { id:'p34', kind:'shop', cat:'souvenir', name:'紅芋塔以外的御菓子御殿甜點（元祖紅芋菓子系列）', buy:'御菓子御殿 國際通松尾店', cluster:'kokusai', est:180,
     price:'約NT$130-230／盒（600-1,100円）', safe:'ok',
     desc:'紅芋派、紅芋布蕾塔與期間限定櫻花系列——紅芋塔之外的第二選擇，現場試吃再決定。',
-    links:{ g: '御菓子御殿 国際通り松尾店', o:'https://www.okashigoten.co.jp/' } }
+    links:{ g: '御菓子御殿 国際通り松尾店', o:'https://www.okashigoten.co.jp/' } },
+  /* ── 補強：台灣價差大・高CP・日本/沖繩限定 ── */
+  { id:'p35', kind:'shop', cat:'pharmacy', name:'合利他命 EX PLUS（270錠）', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:1150,
+    price:'270錠約NT$950-1,350（4,500-6,500円）', safe:'ok', tag:'台灣價差大',
+    desc:'長輩團最指名的強效B群：日本購入常比台灣公司貨便宜三成以上，270錠大罐最划算。※錠狀保健品入境限量：每種12件、合計36件內，自用適量。',
+    links:{ s:'アリナミンEXプラス 270錠' } },
+  { id:'p36', kind:'shop', cat:'pharmacy', name:'百保能感冒顆粒（パブロンゴールドA）', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:270,
+    price:'44包約NT$230-320（1,100-1,500円）', safe:'ok', tag:'家庭常備定番',
+    desc:'台灣家庭的日本藥妝定番：微粒顆粒好入口，家中常備的安心感。西藥限量每種12件內，自用適量即可。',
+    links:{ s:'パブロンゴールドA 微粒 44包' } },
+  { id:'p37', kind:'shop', cat:'pharmacy', name:'撒隆巴斯貼布 大容量（サロンパス140枚）', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:200,
+    price:'140枚約NT$170-250（800-1,200円）', safe:'ok', tag:'台灣價差大',
+    desc:'走整天行程的痠痛救星：日本大容量盒裝換算單價約台灣六折，長輩自用與回台分送都實用（貼布同屬醫藥品 12/36 限量範圍）。',
+    links:{ s:'サロンパス 140枚' } },
+  { id:'p38', kind:'shop', cat:'pharmacy', name:'花王蒸氣眼罩（めぐりズム12片）', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:230,
+    price:'12片約NT$190-270（900-1,300円）', safe:'ok', tag:'台灣價差大',
+    desc:'飛機上與睡前的舒壓神器：無香、洋甘菊、柚子任選，日本購入約為台灣售價六到七折，長輩旅途恢復精神必備。',
+    links:{ s:'めぐりズム 蒸気でホットアイマスク 12枚' } },
+  { id:'p39', kind:'shop', cat:'pharmacy', name:'DHC 維他命C・B群（60日份）', buy:'唐吉訶德（24hr）', cluster:'kokusai', est:105,
+    price:'60日份約NT$85-130／包（400-600円）', safe:'ok', tag:'高CP',
+    desc:'銅板價保健品代表：60日份一包不到台灣售價一半，自用囤貨最划算（錠狀保健品 12/36 限量內）。',
+    links:{ s:'DHC ビタミンC 60日分' } },
+  { id:'p40', kind:'shop', cat:'pharmacy', name:'雪肌粹 洗面乳（日本 7-11 限定）', buy:'飯店周邊 7-11', cluster:'kokusai', est:120,
+    price:'120g約NT$95-150（450-700円）', safe:'ok', tag:'日本限定',
+    desc:'KOSE×7-11 的日本限定開架王牌：洗後透亮不緊繃，台灣買不到、只能在日本 7-11 入手，價格親民、體積小好分送。',
+    links:{ s:'雪肌粋 洗顔クリーム セブン' } },
+  { id:'p41', kind:'shop', cat:'pharmacy', name:'LuLuLun 面膜 沖繩限定（香檬／扶桑花）', buy:'唐吉訶德／機場', cluster:'kokusai', est:180,
+    price:'7片×5包約NT$150-210（700-1,000円）', safe:'ok', tag:'沖繩限定',
+    desc:'國民面膜的沖繩地區限定版：香檬清爽保濕、扶桑花潤澤，盒裝自帶伴手禮感——只有沖繩買得到，送閨蜜同事零風險。',
+    links:{ s:'ルルルン 沖縄限定 シークヮーサー' } },
+  { id:'p42', kind:'shop', cat:'pharmacy', name:'桐灰 貼式暖暖包（30入箱）', buy:'唐吉訶德／超商', cluster:'kokusai', est:170,
+    price:'30入約NT$130-210（600-1,000円）', safe:'ok', tag:'冬季必備・高CP',
+    desc:'一月沖繩海風天的隱藏必需品：貼一片在背上抗東北季風，箱裝單價約台灣一半，行程用不完帶回台灣過冬剛剛好。',
+    links:{ s:'桐灰 カイロ 貼る 30個' } },
+  { id:'p43', kind:'shop', cat:'food_local', name:'ジーマーミ豆腐（花生豆腐・常溫包）', buy:'わした本店／超市', cluster:'kokusai', est:130,
+    price:'3入約NT$105-160（500-750円）', safe:'ok', tag:'長輩最愛',
+    desc:'沖繩宴席定番的花生豆腐：Q彈綿滑、附黑糖醬油膏，冰過更好吃。常溫包裝可入境台灣（花生製品非管制品），是長輩最有共鳴的溫和甜點。',
+    links:{ s:'ジーマーミ豆腐 常温 お土産' } },
+  { id:'p44', kind:'shop', cat:'food_local', name:'ぬちまーす 命御庭海鹽（宮城島）', buy:'わした本店／唐吉訶德', cluster:'kokusai', est:250,
+    price:'111g約NT$210-290（1,000-1,400円）', safe:'ok', tag:'台灣價差大',
+    desc:'以「礦物質種類最多」列入金氏紀錄的沖繩海鹽：粉雪般細緻、鹹中回甘，台灣售價常是日本兩倍以上——自用提味、送料理魂朋友都超值。',
+    links:{ s:'ぬちまーす 塩 111g' } },
+  { id:'p45', kind:'shop', cat:'grocery', name:'オキハム 軟骨ソーキ／ラフテー調理包', buy:'PARCO CITY 超市', cluster:'naha', est:105,
+    price:'約NT$85-125／包（400-600円）', safe:'warn', tag:'當地吃・禁帶回台',
+    desc:'沖繩家庭味的即食包——但⚠️含豬肉製品嚴禁帶回台灣（查獲重罰）。想吃買一包回飯店加熱配白飯（東急Stay 房內就有微波爐），「只在當地吃」是唯一正解。',
+    links:{ s:'オキハム 軟骨ソーキ レトルト' } },
+  { id:'p46', kind:'shop', cat:'craft', name:'紅型圖案雜貨（杯墊／束口袋／扇子）', buy:'國際通工藝店／壺屋通', cluster:'kokusai', est:230,
+    price:'約NT$105-420／件（500-2,000円）', safe:'ok', tag:'輕巧工藝',
+    desc:'琉球王朝染織工藝「紅型」的日常化小物：飽和的南國配色一眼難忘，輕薄不佔行李，是有文化底蘊又不傷荷包的伴手禮。',
+    links:{ s:'紅型 コースター 沖縄 雑貨' } },
+  { id:'p47', kind:'shop', cat:'liquor', name:'泡盛迷你瓶 飲み比べ組（久米仙／菊之露等）', buy:'唐吉訶德／わした本店', cluster:'kokusai', est:210,
+    price:'100ml×3-5瓶約NT$170-250（800-1,200円）', safe:'ok-check', tag:'入門嘗鮮',
+    desc:'還不確定喜不喜歡泡盛？迷你瓶組合一次試遍各酒造風格，輕巧好帶不怕踩雷，喝出心頭好再回頭買大瓶（酒類須託運）。',
+    links:{ s:'泡盛 ミニボトル 飲み比べ セット' } }
 ];
 
 /* ── 免費填充活動（每區）─────────────────── */
@@ -445,7 +531,7 @@ const ANCHORS = {
 
 /* ── 交通小抄（從國際通飯店出發）────────── */
 const TRANSIT = {
-  kokusai: '飯店就在國際通正中心（縣廳前站步行約7分）：國際通、平和通、牧志市場、壺屋通皆步行可達。單日搭單軌3次以上可買QR一日券（24小時1,000円）。六人同行短程移動，直接拆「3人×2台計程車」最省力。',
+  kokusai: '飯店就在國際通正中心（縣廳前站步行約7分）：國際通、平和通、牧志市場、壺屋通皆步行可達。單日搭單軌3次以上可買QR一日券（24小時1,000円）。多人同行短程移動，直接拆成多台計程車點對點接送最省力（系統會依人數自動試算台數與費用）。',
   naha: '首里城：單軌至首里站步行約15分，或計程車約20分（長輩建議計程車直達）。泊港賞鯨：計程車約8分。瀨長島：計程車約20分（每台約1,500-2,000円）。浦添PARCO CITY：計程車約15分（約1,500円）——回程戰利品多，強烈建議直接搭計程車回飯店。',
   north: '北部遠征日全程包車（10人座海獅・建議中文司機，10小時約48,000-53,000円）：那霸→美麗海走高速約2小時，車輛可直上八重岳山腰賞櫻，免除長輩爬坡與轉車之苦。司機檔期請提前2-3個月預訂。',
   central: '恩納・讀谷・北谷一帶大眾運輸班次少，建議續用包車（同北部日規格）；只去美國村可搭120號公車（約1小時）或計程車約40-50分。回程戰利品多以包車或計程車為準。'
@@ -458,7 +544,27 @@ const FLIGHT_NOTE = '航班時間以航空公司最終公告／票面為準；�
    （座標與時間皆為保守估算，供交通與時間軸試算參考）
    ══════════════════════════════════════════════ */
 
-const HOTEL = { name: '嘉新酒店 Hotel Collective', lat: 26.2137, lng: 127.6830, zone: 'kokusai' };
+/* ── 住宿基地三選一（依研究報告評估；切換後距離與交通全部以它為圓心重算） ── */
+const HOTELS = {
+  collective: {
+    name: '嘉新酒店 Hotel Collective', short: '嘉新酒店（國際通正中心）', lat: 26.2137, lng: 127.6830, zone: 'kokusai',
+    area: '國際通正中心（縣廳前站步行約7分）',
+    pick: '長輩首選：客房寬敞、隔音優異，下樓即國際通，度假村規格的空間尺度能吸收旅途疲憊',
+    note: '房價屬市區頂端；週日步行者天國（12:00-18:00）期間計程車需繞至側街上下車',
+    links: { g: 'ホテルコレクティブ 那覇', o: 'https://hotelcollective.jp/' } },
+  tokyu: {
+    name: '東急 Stay 沖繩那霸', short: '東急Stay（壺川・機能派）', lat: 26.2055, lng: 127.6790, zone: 'tsubogawa',
+    area: '壺川站與旭橋站之間（壺川站步行約6分）',
+    pick: '年輕夫婦首選：房內標配洗脫烘衣機＋微波爐，樓下就是唐吉訶德與全家，冬季少帶一半衣物',
+    note: '環保政策不每日全面打掃（僅換毛巾清垃圾）；入口位於斜坡，拖行李較費力',
+    links: { g: '東急ステイ沖縄那覇', o: 'https://www.tokyustay.co.jp/' } },
+  hewitt: {
+    name: '那霸 Hewitt 度假村', short: 'Hewitt（安里・高樓景觀）', lat: 26.2222, lng: 127.6958, zone: 'asato',
+    area: '安里站旁（步行約4分），國際通尾端步行3分',
+    pick: '設計新穎、高樓層景觀與自製漢堡早餐出色，房價比嘉新親和——適合年輕組',
+    note: '低樓層走廊較暗、衛浴偏小、電梯與早餐尖峰擁擠——長輩入住建議優先考慮前兩間',
+    links: { g: 'ヒューイットリゾート那覇', o: 'https://hewitt-resort.com/' } }
+};
 
 /* 單軌電車站序（Yui Rail 單一路線；l1 = 站序） */
 const STATIONS = {
@@ -492,7 +598,9 @@ const ZONES = {
   nago:      { st: null, cluster: 'north' },
   onna:      { st: null, cluster: 'central' },
   yomitan:   { st: null, cluster: 'central' },
-  chatan:    { st: null, cluster: 'central' }
+  chatan:    { st: null, cluster: 'central' },
+  tsubogawa: { st: '壺川', walk: 6,  cluster: 'kokusai' },
+  ginowan:   { st: null, cluster: 'central' }
 };
 
 /* 具體採購門市（購物項目 → 門市 → 排入每日行程） */
@@ -513,7 +621,7 @@ const STORES = {
     note: '沖繩最大複合商場（10:00開門）：潮牌服飾集中2-3F、1F サンエー超市掃零食最便宜；滿5,000円退稅帶護照。回程戰利品多，直接搭計程車回飯店（約1,500円）', links: { g: 'サンエー浦添西海岸パルコシティ', o: 'https://www.parcocity.jp/' } },
   aquashop:     { name: '美麗海水族館 紀念品店（館內）', zone: 'motobu', lat: 26.6942, lng: 127.8780, stay: 20, open: 510, close: 1050,
     note: '鯨鯊布偶館內限定款最齊——北部包車日參觀完順手買，錯過沒有第二次', links: { g: '沖縄美ら海水族館' } },
-  cvs:          { name: '飯店周邊超商（LAWSON／全家）', zone: 'kokusai', lat: 26.2140, lng: 127.6845, stay: 10, close: 1440,
+  cvs:          { name: '飯店周邊超商（7-11／LAWSON／全家）', zone: 'kokusai', lat: 26.2140, lng: 127.6845, stay: 10, close: 1440,
     note: 'さんぴん茶與罐裝麥根沙士當場喝最讚（液體不可手提上機）', links: { g: 'ローソン 松尾一丁目' } }
 };
 
@@ -599,7 +707,29 @@ const META = {
   p31: { store: 'parco',       rec: 78, img: '沖縄そば カップ麺' },
   p32: { store: 'parco',       rec: 77, img: '黒糖しょうが' },
   p33: { store: 'cvs',         rec: 82, img: 'さんぴん茶' },
-  p34: { store: 'okashigoten', rec: 76, img: '御菓子御殿 紅芋スイーツ' }
+  p34: { store: 'okashigoten', rec: 76, img: '御菓子御殿 紅芋スイーツ' },
+  /* 補強清單 */
+  f31: { lat: 26.2228, lng: 127.6852, zone: 'tomari',   stay: 50, rec: 84, open: 0,    close: 1440 },
+  f32: { lat: 26.2235, lng: 127.6830, zone: 'tomari',   stay: 40, rec: 85, open: 600,  close: 900 },
+  f33: { lat: 26.2103, lng: 127.6777, zone: 'kencho',   stay: 50, rec: 86, open: 450,  close: 840 },
+  f34: { lat: 26.2138, lng: 127.6802, zone: 'kencho',   stay: 90, rec: 88, open: 1050, close: 1350, closedDow: [0] },
+  f35: { lat: 26.2560, lng: 127.7120, zone: 'urasoe',   stay: 45, rec: 86, open: 600,  close: 960,  closedDow: [0] },
+  f36: { lat: 26.2828, lng: 127.7442, zone: 'ginowan',  stay: 35, rec: 84, open: 630,  close: 1140 },
+  f37: { lat: 26.2218, lng: 127.6968, zone: 'asato',    stay: 75, rec: 85, open: 1140 },
+  f38: { lat: 26.2136, lng: 127.6688, zone: 'naminoue', stay: 90, rec: 82, open: 660,  close: 1350 },
+  p35: { store: 'donki',      rec: 90, img: 'アリナミンEXプラス 270錠' },
+  p36: { store: 'donki',      rec: 87, img: 'パブロンゴールドA 微粒' },
+  p37: { store: 'donki',      rec: 88, img: 'サロンパス 140枚' },
+  p38: { store: 'donki',      rec: 89, img: 'めぐりズム 蒸気でホットアイマスク' },
+  p39: { store: 'donki',      rec: 85, img: 'DHC ビタミンC 60日' },
+  p40: { store: 'cvs',        rec: 86, img: '雪肌粋 洗顔' },
+  p41: { store: 'donki',      rec: 87, img: 'ルルルン 沖縄限定' },
+  p42: { store: 'donki',      rec: 84, img: '桐灰 カイロ 貼る' },
+  p43: { store: 'washita',    rec: 86, img: 'ジーマーミ豆腐' },
+  p44: { store: 'washita',    rec: 88, img: 'ぬちまーす 塩' },
+  p45: { store: 'parco',      rec: 79, img: 'オキハム 軟骨ソーキ' },
+  p46: { store: 'kokusai_st', rec: 80, img: '紅型 コースター 沖縄' },
+  p47: { store: 'donki',      rec: 81, img: '泡盛 ミニボトル 飲み比べ' }
 };
 
 /* 免費散步錨點的座標與停留 */

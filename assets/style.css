@@ -69,9 +69,19 @@ small { color: var(--ink-3); font-weight: 400; }
 }
 .fl-in:focus { outline: 2px solid #ffe08a; outline-offset: 1px; }
 .ic label { white-space: nowrap; }
+.fl-in.num { width: 64px; text-align: center; }
+.fl-sel {
+  font: inherit; font-size: 13px; font-weight: 700; max-width: 100%;
+  padding: 2px 6px; margin: 1px 2px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.16); color: #fff;
+}
+.fl-sel option { color: #1d2733; background: #fff; }
+.fl-sel:focus { outline: 2px solid #ffe08a; outline-offset: 1px; }
+.ic .hotel-pick { font-size: 12px; opacity: .92; line-height: 1.55; display: inline-block; margin-top: 2px; }
 .sc .fl-in {
   border-color: #d1d5db; background: #fff; color: var(--ink); color-scheme: light;
 }
+.sc .fl-sel { border-color: #d1d5db; background: #fff; color: var(--ink); }
 
 /* ── Tabs / Chips ───────────────── */
 .controls { position: sticky; top: 0; z-index: 30; background: var(--bg); padding: 10px 0 8px; border-bottom: 1px solid var(--line); }

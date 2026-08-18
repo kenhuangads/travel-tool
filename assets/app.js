@@ -36,6 +36,9 @@
     return 2 * R * Math.asin(Math.sqrt(s));
   }
 
+  /* ---------- 住宿基地（可切換；預設嘉新酒店） ---------- */
+  let HOTEL = HOTELS.collective;
+
   /* ---------- 資料合併：座標／停留／門市 ---------- */
   const ALL = [...SPOTS, ...FOODS, ...SHOPS];
   const DB = {};
@@ -85,8 +88,38 @@
     stPins: {},             // 購物門市手動指定：{ 門市key: { d:第幾天(0-4) } }
     ord: {},                // 當日手動排序：{ 第幾天: [停靠點key…] }（key＝項目id／st:門市／d5shop／anchor）
     dayCl: null,            // 整天對調：Day2-4 各自負責的生活圈，null＝系統自動安排
-    flight: {}              // 航班時間（分鐘制）：{ obDep, obArr, ibDep, ibArr }；空＝用預設示意時間
+    flight: {},             // 航班時間（分鐘制）：{ obDep, obArr, ibDep, ibArr, ap }；空＝用預設示意時間
+    hotel: 'collective',    // 住宿基地（HOTELS 的 key）
+    party: null             // 同行人數（2-12），null＝預設 6 位大人
   };
+
+  /* ---- 人數／住宿／機場（可調整，影響計程車拆分、包車車型與費用試算） ---- */
+  const PARTY = () => {
+    const n = +state.party;
+    return (n >= 2 && n <= 12) ? n : 6;
+  };
+  const cabInfo = () => {
+    const n = PARTY();
+    const cabs = n <= 4 ? 1 : Math.ceil(n / 3);  // 5人以上依「每台3人＋行李」拆分（那霸小型車定員4名）
+    return { n, cabs, txt: cabs === 1 ? `${n}人1台計程車` : `${n}人分${cabs}台計程車` };
+  };
+  function charterInfo() {
+    const n = PARTY();
+    const per = c => 'NT$' + (Math.round(c / n / 10) * 10).toLocaleString('en-US');
+    if (n <= 4) return { short: '7人座阿爾法', label: '7人座豐田阿爾法等級（建議中文司機）', costNT: 8800,
+      costTxt: `約 40,000-44,000 日圓 ≈ NT$8,400-9,200（10小時基準・${n}人合計，每人約${per(8800)}）` };
+    if (n <= 9) return { short: '10人座海獅', label: '10人座豐田海獅（建議中文司機）', costNT: 10500,
+      costTxt: `約 48,000-53,000 日圓 ≈ NT$10,100-11,100（10小時基準・${n}人合計，每人約${per(10500)}）` };
+    return { short: '海獅×2台／中巴', label: '10人座海獅×2台或中巴（請與業者確認）', costNT: 21000,
+      costTxt: `兩台合計約 96,000-106,000 日圓 ≈ NT$20,200-22,300（10小時基準・${n}人合計，每人約${per(21000)}）` };
+  }
+  function hotelInfo() { return HOTELS[state.hotel] || HOTELS.collective; }
+  function airportInfo() { return AIRPORTS[(state.flight && state.flight.ap) || 'tpe'] || AIRPORTS.tpe; }
+  /* 換飯店：所有距離與交通以新基地為圓心重算 */
+  function applyHotel() {
+    HOTEL = hotelInfo();
+    ALL.forEach(it => { it._km = havKm(HOTEL, it); });
+  }
 
   /* ---- 航班時間 ----
      使用者輸入實際航班後，Day1 報到／接送／首餐起始時間與 Day5 的
@@ -104,12 +137,27 @@
     else if (k === 'ibDep') { const d = fi.ibArr - fi.ibDep; state.flight.ibDep = val; state.flight.ibArr = Math.max(0, Math.min(1435, val + d)); }
     else state.flight[k] = val;
   }
-  function syncFlightInputs() {
-    const fi = flightInfo();
-    [['obDep', fi.obDep], ['obArr', fi.obArr], ['ibDep', fi.ibDep], ['ibArr', fi.ibArr]].forEach(([id, v]) => {
-      const el = document.getElementById(id);
-      if (el) el.value = fmtT(Math.min(v, 1435));
-    });
+  function renderHeroCards() {
+    const el = document.getElementById('heroCards');
+    if (!el) return;
+    const fi = flightInfo(), ap = airportInfo(), h = hotelInfo(), n = PARTY();
+    el.innerHTML = `
+      <div class="ic"><div class="ic-t">✈️ 去程 1/20（三）｜可修改</div>
+        <select id="apSel" class="fl-sel">${Object.entries(AIRPORTS).map(([k, a]) => `<option value="${k}"${k === ((state.flight && state.flight.ap) || 'tpe') ? ' selected' : ''}>${a.name}</option>`).join('')}</select> 出發<br>
+        <label>出發 <input type="time" id="obDep" class="fl-in" value="${fmtT(Math.min(fi.obDep, 1435))}"></label>
+        <label>→ 抵達那霸 <input type="time" id="obArr" class="fl-in" value="${fmtT(Math.min(fi.obArr, 1435))}"></label></div>
+      <div class="ic"><div class="ic-t">✈️ 回程 1/24（日）｜可修改</div>
+        <label>出發 <input type="time" id="ibDep" class="fl-in" value="${fmtT(Math.min(fi.ibDep, 1435))}"></label> 那霸機場<br>
+        <label>抵達 <input type="time" id="ibArr" class="fl-in" value="${fmtT(Math.min(fi.ibArr, 1435))}"></label> ${esc(ap.short)}（台灣時間）</div>
+      <div class="ic"><div class="ic-t">🏨 住宿基地｜可選擇</div>
+        <select id="hotelSel" class="fl-sel wide">${Object.entries(HOTELS).map(([k, x]) => `<option value="${k}"${k === (state.hotel || 'collective') ? ' selected' : ''}>${x.short}</option>`).join('')}</select><br>
+        <span class="hotel-pick">${esc(h.pick)}</span><br>
+        <a href="${gmap(h.links.g)}" target="_blank" rel="noopener">📍 Google地圖</a>
+        ${h.links.o ? ` <a href="${esc(h.links.o)}" target="_blank" rel="noopener">🌐 官網</a>` : ''}</div>
+      <div class="ic"><div class="ic-t">👥 同行人數｜可修改</div>
+        <input type="number" id="partyIn" class="fl-in num" min="2" max="12" value="${n}"> 位大人<br>
+        <span class="hotel-pick">計程車拆分（${cabInfo().cabs} 台）與包車車型（${esc(charterInfo().short)}）會依人數自動換算費用</span></div>
+      <div class="ic"><div class="ic-t">🌤 一月的沖繩</div>全年最冷 14~20°C・海風強勁<br>洋蔥式穿搭＋防風外套＋毛帽必備</div>`;
   }
 
   const gimg = q => 'https://www.google.com/search?udm=2&q=' + encodeURIComponent(q); // Google 圖片搜尋
@@ -158,6 +206,8 @@
       localStorage.setItem('oki_ord_v1', JSON.stringify(state.ord));
       localStorage.setItem('oki_daycl_v1', JSON.stringify(state.dayCl));
       localStorage.setItem('oki_flight_v1', JSON.stringify(state.flight));
+      localStorage.setItem('oki_hotel_v1', state.hotel || 'collective');
+      localStorage.setItem('oki_party_v1', state.party == null ? '' : String(state.party));
     } catch (e) {}
   }
   function load() {
@@ -171,6 +221,10 @@
       try { state.ord = JSON.parse(localStorage.getItem('oki_ord_v1') || '{}') || {}; } catch (e) { state.ord = {}; }
       try { state.dayCl = JSON.parse(localStorage.getItem('oki_daycl_v1') || 'null'); } catch (e) { state.dayCl = null; }
       try { state.flight = JSON.parse(localStorage.getItem('oki_flight_v1') || '{}') || {}; } catch (e) { state.flight = {}; }
+      const ht = localStorage.getItem('oki_hotel_v1');
+      if (ht && HOTELS[ht]) state.hotel = ht;
+      const pp = +localStorage.getItem('oki_party_v1');
+      if (pp >= 2 && pp <= 12) state.party = pp;
     } catch (e) {}
   }
   const encPins = () => Object.entries(state.pins)
@@ -193,8 +247,11 @@
   const extraParams = () => {
     const p = encPins(), sp = encStPins(), o = encOrd(), at = encAt(), fl = encFl();
     const dc = state.dayCl ? '&dc=' + state.dayCl.join('.') : '';
+    const ht = (state.hotel && state.hotel !== 'collective') ? '&ht=' + state.hotel : '';
+    const pp = state.party != null ? '&pp=' + state.party : '';
+    const ap = (state.flight && state.flight.ap && state.flight.ap !== 'tpe') ? '&ap=' + state.flight.ap : '';
     return (p ? '&p=' + p : '') + (sp ? '&sp=' + sp : '') + (o ? '&o=' + encodeURIComponent(o) : '') +
-      (at ? '&at=' + at : '') + dc + (fl ? '&fl=' + fl : '');
+      (at ? '&at=' + at : '') + dc + (fl ? '&fl=' + fl : '') + ht + pp + ap;
   };
   function shareUrl() {
     const ids = [...state.sel].sort();
@@ -245,6 +302,12 @@
       const k = ['obDep', 'obArr', 'ibDep', 'ibArr'][i];
       if (k && v !== '' && isFinite(+v) && +v >= 0 && +v < 1440) state.flight[k] = +v;
     });
+    const ht = p.get('ht');
+    if (ht && HOTELS[ht]) state.hotel = ht;
+    const pp = +(p.get('pp') || 0);
+    state.party = (pp >= 2 && pp <= 12) ? pp : null;
+    const ap = p.get('ap');
+    if (ap && AIRPORTS[ap]) state.flight.ap = ap;
     state.fromShare = true;
     return true;
   }
@@ -327,15 +390,16 @@
     let yen = 600 + Math.max(0, tKm - 1.75) / 0.365 * 100; // 那霸小型計程車費率概算
     yen = Math.ceil(yen / 10) * 10;
     const cabNT = Math.round(yen * YEN2NT / 10) * 10;
-    const taxiNT = cabNT * 2; // 六人拆成 3人×2台
+    const ci = cabInfo();
+    const taxiNT = cabNT * ci.cabs; // 依人數拆分台數
     const mi = metroInfo(from.zone, to.zone);
     if (mi && mi.mins <= taxiMins + 10) {
-      return { mode: 'metro', mins: mi.mins, fare2: mi.fareNT * 6, km: line,
-        desc: `🚝 ${mi.label} 約${mi.mins}分・約NT$${mi.fareNT}／人（6人合計約NT$${mi.fareNT * 6}，此段搭單軌更順）`,
+      return { mode: 'metro', mins: mi.mins, fare2: mi.fareNT * ci.n, km: line,
+        desc: `🚝 ${mi.label} 約${mi.mins}分・約NT$${mi.fareNT}／人（${ci.n}人合計約NT$${mi.fareNT * ci.n}，此段搭單軌更順）`,
         short: `🚝${mi.mins}分 NT$${mi.fareNT}/人` };
     }
     return { mode: 'taxi', mins: taxiMins, fare2: taxiNT, km: tKm,
-      desc: `🚕 計程車約${taxiMins}分（${kmTxt(tKm)}・3人×2台 合計約NT$${taxiNT}）`,
+      desc: `🚕 計程車約${taxiMins}分（${kmTxt(tKm)}・${ci.txt} 合計約NT$${taxiNT}）`,
       short: `🚕${taxiMins}分 NT$${taxiNT}` };
   }
 
@@ -714,12 +778,14 @@
   function computeTimeline(day) {
     const t = CONFIG.trip;
     const fi = flightInfo();
+    const hv = hotelInfo();
+    const apt = airportInfo();
     const rows = [];
     if (day.key === 'd1') {
-      rows.push({ k: 'fixed', t: fmtT(fi.obDep), text: `✈️ ${fmtT(fi.obDep)} ${t.outbound.from}出發（${t.outbound.airline}）`, sub: `建議 ${fmtT(Math.max(0, fi.obDep - 120))} 前抵達機場辦理報到與托運；航班時間可在上方摘要卡直接修改，整份行程會自動重算` });
+      rows.push({ k: 'fixed', t: fmtT(fi.obDep), text: `✈️ ${fmtT(fi.obDep)} ${apt.name}出發（${t.outbound.airline}）`, sub: `建議 ${fmtT(Math.max(0, fi.obDep - 120))} 前抵達機場辦理報到與托運；航班時間可在上方摘要卡直接修改，整份行程會自動重算` });
       rows.push({ k: 'fixed', t: fmtT(fi.obArr), text: `🛬 ${fmtT(fi.obArr)} 抵達那霸機場`, sub: '日本時間比台灣快 1 小時｜入境領行李後，可先在機場買單軌 QR 一日券（1,000円）或 OKICA 交通卡' });
-      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 45)), text: '🚕 機場 → 國際通飯店（3人×2台計程車）', sub: '計程車約 15 分（每台約1,500-2,000円，行李多最省力）；或單軌至縣廳前站約 13 分（約NT$55／人）再步行 7 分' });
-      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 80)), text: `🏨 ${t.hotel.name} 寄放行李`, sub: '15:00 後正式入住｜' + t.hotel.area, links: { g: t.hotel.links.g, o: t.hotel.links.o } });
+      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 45)), text: `🚕 機場 → 飯店（${cabInfo().txt}）`, sub: '計程車約 15 分（每台約1,500-2,000円，行李多最省力）；或搭單軌轉步行（依住宿位置，約NT$55-70／人）' });
+      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 80)), text: `🏨 ${hv.name} 寄放行李`, sub: '15:00 後正式入住｜' + hv.area, links: { g: hv.links.g, o: hv.links.o } });
     }
     if (day.key === 'd5') {
       rows.push({ k: 'fixed', t: '08:30', text: '🧳 整理行李・辦理退房', sub: '行李寄放櫃台，採買完回飯店領取' });
@@ -727,7 +793,7 @@
     day.charter = !!((CLUSTERS[day.cluster] || {}).charter) && day.seq.length > 0;
     if (day.charter) {
       const cst = CONFIG.charter || {};
-      rows.push({ k: 'fixed', t: fmtT(cst.startMin || 510), text: `🚐 包車於飯店出發（${cst.label || '10人座包車'}）`,
+      rows.push({ k: 'fixed', t: fmtT(cst.startMin || 510), text: `🚐 包車於飯店出發｜${charterInfo().label}`,
         sub: '包車 10 小時基準、自上車起算；若首站較晚開門可與司機約定延後發車。' + (cst.overTxt || '超時費以現金支付司機') });
     }
     let cur = { lat: HOTEL.lat, lng: HOTEL.lng, zone: HOTEL.zone };
@@ -796,7 +862,7 @@
       rows.push({ k: 'hotel', t: time, pickup: day.key === 'd5', curfew: day.curfew, soft: day.curfewSoft });
     }
     if (day.charter) {
-      const cNT = ((CONFIG.charter || {}).costNT || 0);
+      const cNT = charterInfo().costNT;
       transCost += cNT;
       day.charterCost = cNT;
     }
@@ -805,10 +871,10 @@
       const dep5min = fi.ibDep - 165;
       const dep = Math.max(dep5min, ceil5(time + 10));
       day.squeeze = dep > dep5min;
-      rows.push({ k: 'fixed', t: fmtT(dep), text: '🚕 前往那霸機場（3人×2台計程車）',
+      rows.push({ k: 'fixed', t: fmtT(dep), text: `🚕 前往那霸機場（${cabInfo().txt}）`,
         sub: `計程車約 15-20 分（每台約1,500-2,000円）；⚠️ 週日 12:00 起國際通主街封街（步行者天國），請於飯店後側街道上車。建議 ${fmtT(fi.ibDep - 120)} 前抵達機場辦理報到與托運${day.squeeze ? `——目前行程 ${fmtT(time)} 才回到飯店，已經偏緊` : ''}` });
       rows.push({ k: 'fixed', t: fmtT(fi.ibDep), text: `✈️ ${fmtT(fi.ibDep)} ${t.inbound.from}出發（${t.inbound.airline}）`, sub: '航班時間可在上方摘要卡直接修改；報到後那霸機場 2 樓伴手禮街可做最後補貨（紅芋塔國內線也買得到）' });
-      rows.push({ k: 'fixed', t: fmtT(fi.ibArr), text: `🛬 ${fmtT(fi.ibArr)} 抵達${t.inbound.to}`, sub: '台灣時間｜歡迎回家 🎉' });
+      rows.push({ k: 'fixed', t: fmtT(fi.ibArr), text: `🛬 ${fmtT(fi.ibArr)} 抵達${apt.name}`, sub: '台灣時間｜歡迎回家 🎉' });
     }
     day.tl = rows;
     day.transCost = transCost;
@@ -1776,7 +1842,7 @@
 
     // 比例路線條：段落長度＝實際距離，顏色＝交通方式
     const MODE_TXT = { walk: '步行', metro: '單軌', taxi: '計程車', van: '包車' };
-    let strip = '<span class="rt-node hotel" title="國際通飯店">🏨</span>';
+    let strip = '<span class="rt-node hotel" title="住宿飯店">🏨</span>';
     stops.forEach((p, i) => {
       const leg = legs[i];
       strip += leg
@@ -1820,6 +1886,8 @@
   function renderResult(plan) {
     const t = CONFIG.trip;
     const fi = flightInfo();
+    const hv = hotelInfo();
+    const apR = airportInfo();
     const c = counts();
     fullDayInfo = plan.days.map((d, i) => ({ idx: i, cluster: d.cluster })).filter((_, i) => plan.days[i].full);
     const dayHtml = plan.days.map((d, i) => {
@@ -1850,13 +1918,14 @@
       if (mc.metro) modeBits.push(`單軌${mc.metro}段`);
       if (mc.walk) modeBits.push(`步行${mc.walk}段`);
       const heavy = (d.transMins || 0) >= 150;
-      const transTip = d.seq && d.seq.length ? `<div class="tip${heavy ? ' holiday' : ''}">🧭 本日交通：${modeBits.join('＋') || '皆在步行圈'}｜<b>總移動約${durTxt(d.transMins || 0)}、${(d.transKm || 0).toFixed(1)}公里</b>｜交通費預估 ${money(d.transCost || 0)}（6人合計）${heavy && d.hog ? `——<b>其中「${esc(d.hog.name)}」最花時間</b>：把它移到別天（用下方項目的「調整」列）可省下約 ${durTxt(d.hog.save)} 車程、少繞 ${d.hog.km.toFixed(1)} 公里` : heavy ? '——移動偏多，可考慮把最遠的一站換成同區其他選擇' : ''}。${d.curfew ? `本日目標 ${fmtT(d.curfew)} 前回到飯店${d.farDay ? '（有遠程景點，已放寬）' : ''}。` : ''}時間為保守估算（含候車與緩衝）。</div>` : '';
+      const transTip = d.seq && d.seq.length ? `<div class="tip${heavy ? ' holiday' : ''}">🧭 本日交通：${modeBits.join('＋') || '皆在步行圈'}｜<b>總移動約${durTxt(d.transMins || 0)}、${(d.transKm || 0).toFixed(1)}公里</b>｜交通費預估 ${money(d.transCost || 0)}（${PARTY()}人合計）${heavy && d.hog ? `——<b>其中「${esc(d.hog.name)}」最花時間</b>：把它移到別天（用下方項目的「調整」列）可省下約 ${durTxt(d.hog.save)} 車程、少繞 ${d.hog.km.toFixed(1)} 公里` : heavy ? '——移動偏多，可考慮把最遠的一站換成同區其他選擇' : ''}。${d.curfew ? `本日目標 ${fmtT(d.curfew)} 前回到飯店${d.farDay ? '（有遠程景點，已放寬）' : ''}。` : ''}時間為保守估算（含候車與緩衝）。</div>` : '';
       const charterTip = d.charter ? (() => {
         const hr = (d.tl || []).filter(r => r.k === 'hotel').pop();
         const cst = CONFIG.charter || {};
+        const ch = charterInfo();
         const span = hr ? hr.t - (cst.startMin || 510) : 0;
         const over = span - (cst.baseMins || 600);
-        return `<div class="tip">🚐 <b>本日全程包車：</b>${esc(cst.label || '10人座包車')}｜費用${esc(cst.costTxt || '')}。${over > 0
+        return `<div class="tip">🚐 <b>本日全程包車：</b>${esc(ch.label)}｜費用${esc(ch.costTxt)}。${over > 0
           ? `⚠️ 行程試算全程約${durTxt(span)}（回到飯店），超過 10 小時基準約${durTxt(over)}——${esc(cst.overTxt || '')}；想省超時費可刪掉一站，或把晚餐改回那霸市區。`
           : `行程試算全程約${durTxt(span)}，在 10 小時基準內。`}中文司機檔期熱門，請提前 2-3 個月預訂。</div>`;
       })() : '';
@@ -1927,18 +1996,20 @@
         <button class="back no-print" id="backBtn">← 回到勾選頁調整</button>
         ${state.fromShare ? '<div class="share-note no-print">🔗 這是分享連結的行程檢視，點左邊按鈕可調整重排</div>' : ''}
         <h1>🌺 我們的沖繩行程出爐啦！</h1>
-        <p class="r-sub">${t.dates}｜🏨 ${t.hotel.name}｜🗼 景點 ${c.sp} ・ 🍜 餐飲 ${c.fo} ・ 🛍️ 購物 ${c.sh}</p>
+        <p class="r-sub">${t.dates}｜🏨 ${hv.name}｜👥 ${PARTY()}位大人｜🗼 景點 ${c.sp} ・ 🍜 餐飲 ${c.fo} ・ 🛍️ 購物 ${c.sh}</p>
         <div class="summary-cards">
-          <div class="sc"><div class="sc-t">✈️ 去程（時間可改）</div><div>${t.outbound.date}</div>
-            <div>出發 <input type="time" class="fl-in" data-fl="obDep" value="${fmtT(Math.min(fi.obDep, 1435))}"> ${esc(t.outbound.from)}</div>
-            <div>抵達 <input type="time" class="fl-in" data-fl="obArr" value="${fmtT(Math.min(fi.obArr, 1435))}"> ${esc(t.outbound.to)}（日本時間）</div></div>
-          <div class="sc"><div class="sc-t">🏨 住宿</div><div>${t.hotel.name}</div><div>${esc(t.hotel.area)}</div>
-            <div><a href="${gmap(t.hotel.links.g)}" target="_blank" rel="noopener">📍 Google地圖</a>　<a href="${esc(t.hotel.links.o)}" target="_blank" rel="noopener">🌐 官網</a></div></div>
-          <div class="sc"><div class="sc-t">✈️ 回程（時間可改）</div><div>${t.inbound.date}</div>
-            <div>出發 <input type="time" class="fl-in" data-fl="ibDep" value="${fmtT(Math.min(fi.ibDep, 1435))}"> ${esc(t.inbound.from)}</div>
-            <div>抵達 <input type="time" class="fl-in" data-fl="ibArr" value="${fmtT(Math.min(fi.ibArr, 1435))}"> ${esc(t.inbound.to)}（台灣時間）</div></div>
-          <div class="sc cost"><div class="sc-t">💰 預估花費（每人）</div><div class="big">${money(est)}</div><div>餐飲＋門票，不含機酒/交通/購物</div>
-            <div class="sub">🚕 交通預估 ${money(plan.transTotal)}（6人合計，含包車日包車費）</div>
+          <div class="sc"><div class="sc-t">✈️ 去程（可修改）</div><div>${t.outbound.date}</div>
+            <div><select class="fl-sel" data-ap="1">${Object.entries(AIRPORTS).map(([k, a]) => `<option value="${k}"${k === ((state.flight && state.flight.ap) || 'tpe') ? ' selected' : ''}>${a.name}</option>`).join('')}</select> 出發</div>
+            <div>出發 <input type="time" class="fl-in" data-fl="obDep" value="${fmtT(Math.min(fi.obDep, 1435))}"> → 抵達那霸 <input type="time" class="fl-in" data-fl="obArr" value="${fmtT(Math.min(fi.obArr, 1435))}"></div></div>
+          <div class="sc"><div class="sc-t">🏨 住宿（可選擇）</div>
+            <div><select class="fl-sel" data-ht="1">${Object.entries(HOTELS).map(([k, x]) => `<option value="${k}"${k === (state.hotel || 'collective') ? ' selected' : ''}>${x.short}</option>`).join('')}</select></div>
+            <div>${esc(hv.area)}</div>
+            <div><a href="${gmap(hv.links.g)}" target="_blank" rel="noopener">📍 Google地圖</a>　${hv.links.o ? `<a href="${esc(hv.links.o)}" target="_blank" rel="noopener">🌐 官網</a>` : ''}</div></div>
+          <div class="sc"><div class="sc-t">✈️ 回程（可修改）</div><div>${t.inbound.date}</div>
+            <div>出發那霸 <input type="time" class="fl-in" data-fl="ibDep" value="${fmtT(Math.min(fi.ibDep, 1435))}"></div>
+            <div>抵達${esc(apR.short)} <input type="time" class="fl-in" data-fl="ibArr" value="${fmtT(Math.min(fi.ibArr, 1435))}">（台灣時間）</div></div>
+          <div class="sc cost"><div class="sc-t">💰 預估花費（每人）</div><div class="big">${money(est)}</div><div>餐飲＋門票，不含機酒/交通/購物｜👥 <input type="number" class="fl-in num" data-pp="1" min="2" max="12" value="${PARTY()}"> 位大人</div>
+            <div class="sub">🚕 交通預估 ${money(plan.transTotal)}（${PARTY()}人合計，含包車日包車費）</div>
             ${plan.shopCost ? `<div class="sub">🛍️ 購物清單全買約 ${money(plan.shopCost)}</div>` : ''}</div>
         </div>
         <div class="ov-wrap"><b>勾選總覽：</b>${overview}</div>
@@ -2178,7 +2249,7 @@
       d.tl.forEach(r => {
         if (r.k === 'fixed') rows.push([D, d.date, r.t, '固定', cellTxt(r.text), '', '', '', cellTxt(r.sub || '')]);
         else if (r.k === 'trans') rows.push([D, d.date, `${fmtT(r.dep)}→${fmtT(r.arr)}`, '交通',
-          cellTxt(r.tr.desc), '', `${r.tr.mins}分`, r.tr.fare2 ? `NT$${r.tr.fare2}（6人合計）` : '', '']);
+          cellTxt(r.tr.desc), '', `${r.tr.mins}分`, r.tr.fare2 ? `NT$${r.tr.fare2}（${PARTY()}人合計）` : '', '']);
         else if (r.k === 'free') rows.push([D, d.date, fmtT(r.t), '自由時間', `自由時間約${durTxt(r.mins)}`, '', `${r.mins}分`, '', '']);
         else if (r.k === 'hotel') rows.push([D, d.date, fmtT(r.t), '返回', '回到飯店', '', '', '', '']);
         else if (r.k === 'store') rows.push([D, d.date, fmtT(r.t), '採購', cellTxt(r.g.store.name), '',
@@ -2208,7 +2279,7 @@
       });
       rows.push(['', '', '', '', '', '', '', '', '']);
     }
-    rows.push(['預估花費', '', '', '', `每人餐飲＋門票約 ${money(plan.cost)}`, '', '', `交通約 ${money(plan.transTotal)}（6人合計，含包車）`,
+    rows.push(['預估花費', '', '', '', `每人餐飲＋門票約 ${money(plan.cost)}`, '', '', `交通約 ${money(plan.transTotal)}（${PARTY()}人合計，含包車）`,
       plan.shopCost ? `購物全買約 ${money(plan.shopCost)}` : '']);
     rows.push(['互動版連結', '', '', '', shareUrl(), '', '', '', '']);
     return rows;
@@ -2220,9 +2291,10 @@
     const L = [];
     L.push(`🌺 2027 沖繩五天四夜｜客製行程（${curVersionName()}）`);
     const fi = flightInfo();
-    L.push(`✈️ 去程 ${t.outbound.date} ${fmtT(fi.obDep)} ${t.outbound.from}出發 → ${fmtT(fi.obArr)} 抵達${t.outbound.to}（日本時間）`);
-    L.push(`✈️ 回程 ${t.inbound.date} ${fmtT(fi.ibDep)} ${t.inbound.from}出發 → ${fmtT(fi.ibArr)} 抵達${t.inbound.to}（台灣時間）`);
-    L.push(`🏨 ${t.hotel.name}（國際通）`);
+    const apP = airportInfo();
+    L.push(`✈️ 去程 ${t.outbound.date} ${fmtT(fi.obDep)} ${apP.name}出發 → ${fmtT(fi.obArr)} 抵達那霸機場（日本時間）`);
+    L.push(`✈️ 回程 ${t.inbound.date} ${fmtT(fi.ibDep)} 那霸機場出發 → ${fmtT(fi.ibArr)} 抵達${apP.name}（台灣時間）`);
+    L.push(`🏨 ${hotelInfo().name}｜👥 ${PARTY()} 位大人`);
     plan.days.forEach((d, i) => {
       L.push('────────────');
       L.push(`📅 Day ${i + 1} ${d.date}｜${d.theme}`);
@@ -2252,7 +2324,7 @@
       });
     }
     L.push('────────────');
-    L.push(`💰 每人餐飲＋門票約 ${money(plan.cost)}｜🚕 交通約 ${money(plan.transTotal)}（6人合計，含包車日包車費）`);
+    L.push(`💰 每人餐飲＋門票約 ${money(plan.cost)}｜🚕 交通約 ${money(plan.transTotal)}（${PARTY()}人合計，含包車日包車費）`);
     L.push(`🔗 互動版連結：${shareUrl()}`);
     return L.join('\n');
     function durTxtPlain(m) { return durTxt(m); }
@@ -2296,7 +2368,7 @@
     $('#pick').style.display = '';
     try { history.replaceState(null, '', location.pathname); } catch (e) {}
     renderChips(); renderGrid(); renderBar(); renderTools();
-    syncFlightInputs();
+    renderHeroCards();
     window.scrollTo({ top: 0 });
   }
 
@@ -2372,6 +2444,23 @@
       }
     });
     $('#result-inner').addEventListener('change', e => {
+      const apEl = e.target.closest('[data-ap]');
+      if (apEl) {
+        if (AIRPORTS[apEl.value]) { state.flight.ap = apEl.value; reflow(`出發機場已改為${AIRPORTS[apEl.value].name}`); }
+        return;
+      }
+      const htEl = e.target.closest('[data-ht]');
+      if (htEl) {
+        if (HOTELS[htEl.value]) { state.hotel = htEl.value; applyHotel(); reflow(`住宿已改為 ${hotelInfo().name}——距離與交通全部以它為圓心重新計算`); }
+        return;
+      }
+      const ppEl = e.target.closest('[data-pp]');
+      if (ppEl) {
+        const v = parseInt(ppEl.value, 10);
+        if (v >= 2 && v <= 12) { state.party = v; reflow(`人數已改為 ${v} 位——計程車拆分與包車車型費用重新換算好了`); }
+        else ppEl.value = PARTY();
+        return;
+      }
       const flEl = e.target.closest('[data-fl]');
       if (flEl) {
         const v = flEl.value.split(':').map(Number);
@@ -2457,18 +2546,33 @@
         navigator.clipboard.writeText(tel).then(done).catch(() => fallbackCopy(tel, done));
       } else fallbackCopy(tel, done);
     }, true);
-    /* 航班時間輸入（勾選頁 Hero 卡片） */
-    ['obDep', 'obArr', 'ibDep', 'ibArr'].forEach(k => {
-      const el = document.getElementById(k);
-      if (!el) return;
-      el.addEventListener('change', () => {
-        const v = el.value.split(':').map(Number);
+    /* Hero 卡片（航班／機場／住宿／人數）：容器委派，重繪後事件不失效 */
+    const heroEl = document.getElementById('heroCards');
+    if (heroEl) heroEl.addEventListener('change', e => {
+      const el2 = e.target;
+      if (['obDep', 'obArr', 'ibDep', 'ibArr'].indexOf(el2.id) >= 0) {
+        const v = el2.value.split(':').map(Number);
         if (v.length < 2 || isNaN(v[0]) || isNaN(v[1])) return;
-        setFlight(k, v[0] * 60 + v[1]);
-        save();
-        syncFlightInputs();
+        setFlight(el2.id, v[0] * 60 + v[1]);
+        save(); renderHeroCards();
         toast('航班時間已更新——產生行程時，報到、接送與離場時間會自動重算');
-      });
+      } else if (el2.id === 'apSel') {
+        if (!AIRPORTS[el2.value]) return;
+        state.flight.ap = el2.value;
+        save(); renderHeroCards();
+        toast(`出發機場已改為${AIRPORTS[el2.value].name}（回程抵達同機場）`);
+      } else if (el2.id === 'hotelSel') {
+        if (!HOTELS[el2.value]) return;
+        state.hotel = el2.value;
+        save(); applyHotel(); renderHeroCards(); renderGrid();
+        toast(`住宿基地已改為 ${hotelInfo().name}——所有距離與交通以它為圓心重新計算`);
+      } else if (el2.id === 'partyIn') {
+        const v = parseInt(el2.value, 10);
+        if (!(v >= 2 && v <= 12)) { el2.value = PARTY(); return; }
+        state.party = v;
+        save(); renderHeroCards();
+        toast(`人數已改為 ${v} 位——計程車拆分與包車車型費用會自動換算`);
+      }
     });
     $('#tabs').addEventListener('click', e => {
       const b = e.target.closest('[data-tab]'); if (!b) return;
@@ -2596,8 +2700,9 @@
     checkStale();
     const shared = parseUrl();
     if (!shared) load();
+    applyHotel();
     renderChips(); renderGrid(); renderBar(); renderTools(); bindEvents();
-    syncFlightInputs();
+    renderHeroCards();
     if (shared && ready()) showResult();
   }
   document.addEventListener('DOMContentLoaded', init);
