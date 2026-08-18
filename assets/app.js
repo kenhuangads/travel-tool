@@ -367,7 +367,7 @@
     const ride = stops * 2.5;
     const label = `單軌 ${A.st}→${B.st}（${stops}站）`;
     const mins = Math.ceil(A.walk + B.walk + ride + 8); // 進出站＋候車緩衝
-    const yen = stops <= 2 ? 150 : stops <= 4 ? 190 : stops <= 6 ? 230 : stops <= 8 ? 270 : stops <= 11 ? 300 : 330;
+    const yen = stops <= 2 ? 250 : stops <= 4 ? 290 : stops <= 6 ? 320 : stops <= 9 ? 360 : 390; // 2025/2/1 改定運賃
     return { mins, label, fareNT: Math.round(yen * YEN2NT) };
   }
 
@@ -397,7 +397,7 @@
     const tKm = line * 1.35;
     const speed = tKm < 3 ? 14 : tKm < 8 ? 19 : 26; // 市區保守時速
     const taxiMins = Math.ceil(tKm / speed * 60) + 5; // 含叫車上車緩衝
-    let yen = 600 + Math.max(0, tKm - 1.75) / 0.365 * 100; // 那霸小型計程車費率概算
+    let yen = 650 + Math.max(0, tKm - 1.65) / 0.35 * 100; // 沖繩本島普通車費率（2026/8/24改定：初乗650円/1.65km、350m/100円）
     yen = Math.ceil(yen / 10) * 10;
     const cabNT = Math.round(yen * YEN2NT / 10) * 10;
     const ci = cabInfo();
@@ -794,7 +794,7 @@
     if (day.key === 'd1') {
       rows.push({ k: 'fixed', t: fmtT(fi.obDep), text: `✈️ ${fmtT(fi.obDep)} ${apt.name}出發（${t.outbound.airline}）`, sub: `建議 ${fmtT(Math.max(0, fi.obDep - 120))} 前抵達機場辦理報到與托運；航班時間可在上方摘要卡直接修改，整份行程會自動重算` });
       rows.push({ k: 'fixed', t: fmtT(fi.obArr), text: `🛬 ${fmtT(fi.obArr)} 抵達那霸機場`, sub: '日本時間比台灣快 1 小時｜入境領行李後，可先在機場買單軌 QR 一日券（1,000円）或 OKICA 交通卡' });
-      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 45)), text: `🚕 機場 → 飯店（${cabInfo().txt}）`, sub: '計程車約 15 分（每台約1,500-2,000円，行李多最省力）；或搭單軌轉步行（依住宿位置，約NT$55-70／人）' });
+      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 45)), text: `🚕 機場 → 飯店（${cabInfo().txt}）`, sub: '計程車約 15 分（每台約1,800-2,300円，行李多最省力）；或搭單軌轉步行（依住宿位置，約NT$65-80／人）' });
       rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 80)), text: `🏨 ${hv.name} 寄放行李`, sub: '15:00 後正式入住｜' + hv.area, links: { g: hv.links.g, o: hv.links.o } });
     }
     if (day.key === 'd5') {
@@ -882,7 +882,7 @@
       const dep = Math.max(dep5min, ceil5(time + 10));
       day.squeeze = dep > dep5min;
       rows.push({ k: 'fixed', t: fmtT(dep), text: `🚕 前往那霸機場（${cabInfo().txt}）`,
-        sub: `計程車約 15-20 分（每台約1,500-2,000円）；⚠️ 週日 12:00 起國際通主街封街（步行者天國），請於飯店後側街道上車。建議 ${fmtT(fi.ibDep - 120)} 前抵達機場辦理報到與托運${day.squeeze ? `——目前行程 ${fmtT(time)} 才回到飯店，已經偏緊` : ''}` });
+        sub: `計程車約 15-20 分（每台約1,800-2,300円）；⚠️ 週日 12:00 起國際通主街封街（步行者天國），請於飯店後側街道上車。建議 ${fmtT(fi.ibDep - 120)} 前抵達機場辦理報到與托運${day.squeeze ? `——目前行程 ${fmtT(time)} 才回到飯店，已經偏緊` : ''}` });
       rows.push({ k: 'fixed', t: fmtT(fi.ibDep), text: `✈️ ${fmtT(fi.ibDep)} ${t.inbound.from}出發（${t.inbound.airline}）`, sub: '航班時間可在上方摘要卡直接修改；報到後那霸機場 2 樓伴手禮街可做最後補貨（紅芋塔國內線也買得到）' });
       rows.push({ k: 'fixed', t: fmtT(fi.ibArr), text: `🛬 ${fmtT(fi.ibArr)} 抵達${apt.name}`, sub: '台灣時間｜歡迎回家 🎉' });
     }
@@ -1628,7 +1628,7 @@
     if (r.k === 'd5shop') {
       if (!r.stores) {
         return entryHtml(fmtT(r.t), SLOT_LABELS.d5shop, `
-          <div class="e-name">🛍️ 國際通最後採購：唐吉訶德（24hr）＋御菓子御殿／わした本店 <span class="stay">⏳ 約${durTxt(r.stay)}</span></div>
+          <div class="e-name">🛍️ 國際通最後採購：唐吉訶德＋御菓子御殿／わした <span class="stay">⏳ 約${durTxt(r.stay)}</span></div>
           <div class="e-desc">藥妝、伴手禮最後掃貨並辦理免稅（同店單日合計滿 5,000円 出示護照即免 8% 消費稅；消耗品密封袋出境前勿拆），採買完回飯店打包行李</div>
           ${linkRow({ g: 'ドン・キホーテ 国際通り店' }, 'ドン・キホーテ 国際通り店')}`, 'storestop');
       }
