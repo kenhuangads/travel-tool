@@ -793,7 +793,7 @@
     const rows = [];
     if (day.key === 'd1') {
       rows.push({ k: 'fixed', t: fmtT(fi.obDep), text: `✈️ ${fmtT(fi.obDep)} ${apt.name}出發（${t.outbound.airline}）`, sub: `建議 ${fmtT(Math.max(0, fi.obDep - 120))} 前抵達機場辦理報到與托運；航班時間可在上方摘要卡直接修改，整份行程會自動重算` });
-      rows.push({ k: 'fixed', t: fmtT(fi.obArr), text: `🛬 ${fmtT(fi.obArr)} 抵達那霸機場`, sub: '日本時間比台灣快 1 小時｜入境領行李後，可先在機場買單軌 QR 一日券（1,000円）或 OKICA 交通卡' });
+      rows.push({ k: 'fixed', t: fmtT(fi.obArr), text: `🛬 ${fmtT(fi.obArr)} 抵達那霸機場`, sub: '日本時間比台灣快 1 小時｜入境領行李後，可先在機場買單軌 QR 一日券（1,000円）或 OKICA 交通卡；國內線1F「空港食堂」沖繩麵850円・ジューシー250円可先墊肚子（9:00-20:00）' });
       rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 45)), text: `🚕 機場 → 飯店（${cabInfo().txt}）`, sub: '計程車約 15 分（每台約1,800-2,300円，行李多最省力）；或搭單軌轉步行（依住宿位置，約NT$65-80／人）' });
       rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 80)), text: `🏨 ${hv.name} 寄放行李`, sub: '15:00 後正式入住｜' + hv.area, links: { g: hv.links.g, o: hv.links.o } });
     }
@@ -883,7 +883,7 @@
       day.squeeze = dep > dep5min;
       rows.push({ k: 'fixed', t: fmtT(dep), text: `🚕 前往那霸機場（${cabInfo().txt}）`,
         sub: `計程車約 15-20 分（每台約1,800-2,300円）；⚠️ 週日 12:00 起國際通主街封街（步行者天國），請於飯店後側街道上車。建議 ${fmtT(fi.ibDep - 120)} 前抵達機場辦理報到與托運${day.squeeze ? `——目前行程 ${fmtT(time)} 才回到飯店，已經偏緊` : ''}` });
-      rows.push({ k: 'fixed', t: fmtT(fi.ibDep), text: `✈️ ${fmtT(fi.ibDep)} ${t.inbound.from}出發（${t.inbound.airline}）`, sub: '航班時間可在上方摘要卡直接修改；報到後那霸機場 2 樓伴手禮街可做最後補貨（紅芋塔國內線也買得到）' });
+      rows.push({ k: 'fixed', t: fmtT(fi.ibDep), text: `✈️ ${fmtT(fi.ibDep)} ${t.inbound.from}出發（${t.inbound.airline}）`, sub: '航班時間可在上方摘要卡直接修改；報到後那霸機場 2 樓伴手禮街可做最後補貨（紅芋塔國內線也買得到）；FUKUGIYA 機場店（國內線2F出發口）可買賞味期短的黑糖年輪蛋糕、1F空港食堂沖繩麵850円' });
       rows.push({ k: 'fixed', t: fmtT(fi.ibArr), text: `🛬 ${fmtT(fi.ibArr)} 抵達${apt.name}`, sub: '台灣時間｜歡迎回家 🎉' });
     }
     day.tl = rows;
