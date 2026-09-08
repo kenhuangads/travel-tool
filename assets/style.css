@@ -349,7 +349,17 @@ small { color: var(--ink-3); font-weight: 400; }
 /* ── v3：行程內採購站 ───────────── */
 .entry.storestop .e-body { background: #fffaf0; border: 1px dashed #e3c98b; border-radius: 12px; padding: 9px 12px; }
 .store-items { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 6px; }
-.store-items span { font-size: 12.5px; color: var(--ink-2); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; }
+.store-items span, .store-items button.pi { font-size: 12.5px; color: var(--ink-2); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; }
+.store-items button.pi { cursor: pointer; font-family: inherit; line-height: 1.5; transition: .12s; }
+.store-items button.pi:hover { border-color: var(--ocean); color: var(--ocean); }
+.store-items button.pi.on { background: var(--ocean); border-color: var(--ocean); color: #fff; }
+.pi-panel { margin-top: 6px; }
+.pi-card { background: #fff; border: 1px solid #cfe0f2; border-left: 4px solid var(--ocean); border-radius: 10px; padding: 9px 12px; font-size: 12.8px; line-height: 1.7; color: var(--ink-2); }
+.pi-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink); }
+.pi-price { color: #8a5a00; font-weight: 700; margin-top: 2px; }
+.pi-buy { color: var(--ink-3); font-size: 12px; }
+.pi-card .links { margin-top: 5px; }
+@media print { .pi-panel { display: none !important; } .store-items button.pi { border-color: #ccc; color: #333; background: #fff; } }
 .store-note { font-size: 12px; color: #a06b12; margin-top: 5px; }
 .store-b { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e3c98b; }
 .store-b:first-of-type { margin-top: 4px; padding-top: 0; border-top: none; }
@@ -546,3 +556,51 @@ small { color: var(--ink-3); font-weight: 400; }
 .gap-fill .ed.go { background: #fff; border-color: #7fc4a0; color: #1f7a52; }
 .gap-fill .ed.go:hover { background: #1f9d63; border-color: #1f9d63; color: #fff; }
 .gap-fill .ed em { font-style: normal; opacity: .7; margin-left: 4px; font-size: 10.5px; }
+
+/* ── v7：排不進行程的門市（頂部集中面板） ── */
+.unp-wrap { margin: 10px 0; padding: 11px 13px; background: #fff8ec; border: 1px solid #f0d9a8; border-left: 5px solid #e8a13a; border-radius: 12px; scroll-margin-top: 12px; }
+.unp-head { font-size: 13.5px; color: #7a5410; margin-bottom: 8px; }
+.unp-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.unp-card { background: #fff; border: 1px solid #eadfc4; border-radius: 10px; padding: 9px 11px; scroll-margin-top: 12px; }
+.unp-name { font-size: 14px; font-weight: 700; color: var(--ink); }
+.unp-hours { font-size: 11.5px; font-weight: 400; color: #8a94a2; margin-left: 4px; white-space: nowrap; }
+.unp-why { font-size: 12.3px; color: #a3610e; margin-top: 3px; }
+.unp-items { font-size: 12.3px; color: var(--ink-3); margin-top: 3px; }
+.unp-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; padding-top: 7px; border-top: 1px dashed #eee3ca; }
+.unp-jump { font-size: 12px; color: var(--ocean); white-space: nowrap; }
+.tt-link { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.shop-group { scroll-margin-top: 12px; }
+
+/* ── v7：可折疊區塊＋快速跳日列 ── */
+/* 不用 CSS smooth：長距離片段跳轉會被瀏覽器靜默取消，跳轉改由 JS 接管 */
+details.ov-wrap > summary, details.unp-wrap > summary {
+  cursor: pointer; list-style: none; user-select: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+}
+details.ov-wrap > summary::-webkit-details-marker, details.unp-wrap > summary::-webkit-details-marker { display: none; }
+details.ov-wrap > summary::before, details.unp-wrap > summary::before {
+  content: '▸'; font-size: 12px; color: var(--ink-3); transition: transform .15s; flex: none;
+}
+details[open].ov-wrap > summary::before, details[open].unp-wrap > summary::before { transform: rotate(90deg); }
+.sum-hint { font-style: normal; font-size: 12px; color: var(--ink-3); font-weight: 400; }
+details.unp-wrap .sum-hint { color: #a3610e; }
+details.ov-wrap .ov-body, details.unp-wrap .unp-list { margin-top: 8px; }
+details.unp-wrap > summary { margin-bottom: 0; }
+
+.daynav {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  background: rgba(246,244,239,.94); backdrop-filter: blur(6px);
+  padding: 8px 2px; margin: 4px 0 10px; border-bottom: 1px solid var(--line);
+}
+.daynav::-webkit-scrollbar { display: none; }
+.daynav .dn-lab { flex: none; font-size: 12px; color: var(--ink-3); }
+.daynav a {
+  flex: none; display: inline-flex; align-items: baseline; gap: 3px;
+  border: 1.5px solid var(--line); background: var(--card); border-radius: 999px;
+  padding: 4px 12px; font-size: 13px; font-weight: 700; color: var(--ink-2); white-space: nowrap;
+}
+.daynav a:hover { border-color: var(--ocean); color: var(--ocean); text-decoration: none; }
+.daynav a i { font-style: normal; font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.daynav .dn-top { margin-left: auto; }
+.day, .shoplist { scroll-margin-top: 56px; }
+#rtop { scroll-margin-top: 0; }

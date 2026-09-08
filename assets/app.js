@@ -185,6 +185,26 @@
     if (imgQuery) a.push(`<a href="${gimg(imgQuery)}" target="_blank" rel="noopener">📷 實景圖片</a>`);
     return `<div class="links" onclick="event.stopPropagation()">${a.join('')}</div>`;
   }
+  // 行程裡的採購清單：每個品項是可點的晶片，點了在同一區塊下方展開詳情
+  const piChip = it => `<button type="button" class="pi" data-pi="${esc(it.id)}" title="點一下看價格與商品資訊">☐ ${esc(it.name)}</button>`;
+  const piDetail = it => {
+    const L = it.links || {};
+    const safe = it.safe === 'warn' ? '<span class="badge warn">⚠️ 攜帶回台注意</span>'
+      : it.safe === 'ok-check' ? '<span class="badge note">✅ 可帶・須託運</span>'
+      : it.safe === 'ok-fragile' ? '<span class="badge note">✅ 可帶・防撞</span>'
+      : it.safe === 'ok' ? '<span class="badge ok">✅ 合規可帶</span>' : '';
+    const links = [];
+    if (L.o) links.push(`<a href="${esc(L.o)}" target="_blank" rel="noopener">🌐 官網／商品頁</a>`);
+    if (L.s) links.push(`<a href="${gsearch(L.s)}" target="_blank" rel="noopener">🔎 商品介紹</a>`);
+    links.push(`<a href="${gimg(imgQ(it))}" target="_blank" rel="noopener">📷 商品照片預覽</a>`);
+    return `<div class="pi-card">
+      <div class="pi-head"><b>${esc(it.name)}</b>${safe}</div>
+      ${it.price ? `<div class="pi-price">💰 ${esc(it.price)}</div>` : ''}
+      ${it.desc ? `<div class="pi-desc">${esc(it.desc)}</div>` : ''}
+      ${it.buy ? `<div class="pi-buy">🛍️ 哪裡買：${esc(it.buy)}</div>` : ''}
+      <div class="links" onclick="event.stopPropagation()">${links.join('')}</div>
+    </div>`;
+  };
   // 圖片搜尋關鍵字：優先用「對準清單品項」的精準日文商品名，其次店名
   const imgQ = it => {
     if (it.img) return it.img;
@@ -464,12 +484,21 @@
     afternoon: 1050, pmstroll: 1050,
     cafe: 1110, pmcafe: 1140, sweet: 1200,
     evening: 1230, dinner: 1230, d1dinner: 1260,
-    night: 1320, d1night: 1320
+    night: 1320, d1night: 1350
   };
   const DOW_TXT = ['日','一','二','三','四','五','六'];
   // 這家店在這天有開嗎？（closedDow: 0=週日 … 6=週六）
-  const openOnDay = (o, day) =>
-    !(o && o.closedDow && day && day.dow != null && o.closedDow.indexOf(day.dow) >= 0);
+  const openOnDay = (o, day) => {
+    if (!o || !day) return true;
+    if (o.closedDow && day.dow != null && o.closedDow.indexOf(day.dow) >= 0) return false;
+    if (o.closedDates && day.md && o.closedDates.indexOf(day.md) >= 0) return false;  // 特定日期公休（年始休、臨時休業、改裝…）
+    return true;
+  };
+  // 這天為什麼不營業（給提示文字用）
+  const closedWhy = (o, day) => {
+    if (o && o.closedDates && day && day.md && o.closedDates.indexOf(day.md) >= 0) return `${day.md} 店家公告公休`;
+    return `週${DOW_TXT[day.dow]}公休`;
+  };
 
   // 正餐＝會吃飽的一頓（咖啡／甜點／小吃不算），用來檢查兩餐間隔
   const isRealMeal = it => it && it.kind === 'food' &&
@@ -530,15 +559,15 @@
 
   function makeDays() {
     return [
-      { key: 'd1', date: '1/20（三）', dow: 3, full: false, cluster: 'kokusai', theme: '登島適應・國際通暖身',
+      { key: 'd1', md: '1/20', date: '1/20（三）', dow: 3, full: false, cluster: 'kokusai', theme: '登島適應・國際通暖身',
         slotKeys: ['latelunch', 'pmstroll', 'pmcafe', 'd1dinner', 'd1night'] },
-      { key: 'd2', date: '1/21（四）', dow: 4, full: true, cluster: 'north', theme: '北部遠征：八重岳櫻花×美麗海',
+      { key: 'd2', md: '1/21', date: '1/21（四）', dow: 4, full: true, cluster: 'north', theme: '北部遠征：八重岳櫻花×美麗海',
         slotKeys: ['brunch', 'morning', 'lunch', 'afternoon', 'cafe', 'sweet', 'evening', 'dinner', 'night'] },
-      { key: 'd3', date: '1/22（五）', dow: 5, full: true, cluster: 'central', theme: '中部海岸：萬座毛・美國村',
+      { key: 'd3', md: '1/22', date: '1/22（五）', dow: 5, full: true, cluster: 'central', theme: '中部海岸：萬座毛・美國村',
         slotKeys: ['brunch', 'morning', 'lunch', 'afternoon', 'cafe', 'sweet', 'evening', 'dinner', 'night'] },
-      { key: 'd4', date: '1/23（六）', dow: 6, full: true, cluster: 'naha', theme: '那霸深度：首里・賞鯨・瀨長島',
+      { key: 'd4', md: '1/23', date: '1/23（六）', dow: 6, full: true, cluster: 'naha', theme: '那霸深度：首里・賞鯨・瀨長島',
         slotKeys: ['brunch', 'morning', 'lunch', 'afternoon', 'cafe', 'sweet', 'evening', 'dinner', 'night'] },
-      { key: 'd5', date: '1/24（日）', dow: 0, full: false, cluster: 'kokusai', theme: '國際通最終採購・返程',
+      { key: 'd5', md: '1/24', date: '1/24（日）', dow: 0, full: false, cluster: 'kokusai', theme: '國際通最終採購・返程',
         slotKeys: ['d5brunch', 'd5shop', 'd5lunch'] }
     ];
   }
@@ -600,6 +629,9 @@
           if (st.slotKey) day.slots[st.slotKey] = null;
           (day.trimmed = day.trimmed || []).push(st);
           day.overflow = true;
+        } else if (st.type === 'store') {
+          st.trimmedOut = true;
+          (day.trimmedStores = day.trimmedStores || []).push(st);
         } else day.seq.push(st);
       });
       return;
@@ -631,8 +663,12 @@
         if (st.slotKey) day.slots[st.slotKey] = null;
         (day.trimmed = day.trimmed || []).push(st);
         day.overflow = true;
-      } else if (st.type === 'store' || st.type === 'd5shop') {
-        day.seq.push(st); // 採購站沒有時段包袱，仍放進當天由門禁決定去留
+      } else if (st.type === 'store') {
+        // 塞不進營業時間就不要排——擺一個已打烊的時間毫無意義
+        st.trimmedOut = true;
+        (day.trimmedStores = day.trimmedStores || []).push(st);
+      } else if (st.type === 'd5shop') {
+        day.seq.push(st);
       }
     });
   }
@@ -653,29 +689,33 @@
       geo.push({ i, det: havKm(A, S) + havKm(S, B) - havKm(A, B) });
     }
     geo.sort((a, b) => a.det - b.det);
-    const TRY_TOP = 8;
-    const cand = [];
-    for (const g of geo.slice(0, TRY_TOP)) {
+    const evalPos = g => {
       const seq2 = seq.slice();
       seq2.splice(g.i + 1, 0, stop);
       const tmp = { key: day.key, cluster: day.cluster, seq: seq2 };
       computeTimeline(tmp);
       const row = tmp.tl.find(r => (r.k === 'store' && r.g === stop) ||
         (r.k === 'item' && stop.cell && r.cell === stop.cell));
-      if (!row) continue;
+      if (!row) return null;
       const hr = tmp.tl.filter(x => x.k === 'hotel').pop();
-      cand.push({ i: g.i, det: g.det, start: row.t, end: row.end,
+      return { i: g.i, det: g.det, start: row.t, end: row.end,
         meals: timingOk(tmp.tl), back: hr ? hr.t : 0,
-        wait: (row.batch && row.batch.wait) || 0 });   // 要乾等出爐的位置要扣分
-    }
-    if (!cand.length) return false;
+        wait: (row.batch && row.batch.wait) || 0 };   // 要乾等出爐的位置要扣分
+    };
+    const TRY_TOP = 8;
+    const cand = geo.slice(0, TRY_TOP).map(evalPos).filter(Boolean);
     const CLOSE_BUF = 15;                          // 打烊前留 15 分鐘結帳離場
-    const ok = cand.filter(c =>
-      c.meals &&                                   // 不能把任何行程擠出它該有的時段
+    const hoursOk = c =>
       (closeMin == null || c.end <= closeMin - CLOSE_BUF) &&
-      (openMin == null || c.start >= openMin) &&
-      c.start <= 1230);
-    if (!ok.length) return false;                  // 這天排不進合理時段 → 交給呼叫端列為備選
+      (openMin == null || c.start >= openMin);
+    let ok = cand.filter(c => c.meals && hoursOk(c) && c.start <= 1230);   // meals：不能把任何行程擠出它該有的時段
+    // 門市的放寬輪：與其被丟到打烊後的死時間，不如掃「全部」位置、
+    // 拿掉 20:30 上限（營業時間硬條件仍在），找出真正逛得到的排法
+    if (!ok.length && store) {
+      const all = geo.map(evalPos).filter(Boolean);
+      ok = all.filter(c => c.meals && hoursOk(c));
+    }
+    if (!ok.length) return false;                  // 這天真的塞不進營業時間 → 交給呼叫端誠實移出
     // 先看有沒有「能準時回飯店」的排法，有的話只在這些位置裡比繞路
     const CFL = day.key === 'd5' ? (flightInfo().ibDep - 190) : (day.curfewLimit || (CONFIG.curfew || {}).normal || 1290);
     const inTime = ok.filter(c => c.back && c.back <= CFL);
@@ -709,11 +749,14 @@
       const hotelRow = day.tl.filter(r => r.k === 'hotel').pop();
       const back = hotelRow ? hotelRow.t : null;
       if (back == null || back <= limit || !day.seq.length) break;
-      // 手動排序的天：使用者的順序說了算，超時只提醒、不擅自刪停靠點
-      if (day.manualOrd) { day.curfewSoft = true; break; }
+      // 手動排序的天：只保護「使用者親手排過的那些站」（ord 清單內）；
+      // 之後才自動塞進來的站（例如晚開門店家的自動分流）照常受門禁修剪，
+      // 否則按一下 ▲▼ 會讓原本被剪掉的站全部湧回、行程排到半夜
+      const ordProtect = day.manualOrd ? new Set(state.ord[day._i] || []) : null;
 
       // 移除優先序：散步錨點 → 自動補位 → 順路採購 → 自己勾的項目 → 最後採購（最後才動）
       const rank = st => {
+        if (ordProtect && ordProtect.has(stopKey(st))) return 6;       // 使用者手動排過的站不動
         if (st.type === 'cell' && st.cell && st.cell.pinned) return 6; // 手動指定的最後才動
         if (st.type === 'store' && st.pinnedStore) return 6;           // 手動指定日期的採購站同樣受保護
         if (st.type === 'd5shop') return 5;
@@ -723,20 +766,32 @@
         if (st.type === 'store') return 2;
         return 3;
       };
-      // 同一級之內先砍推薦度低的（別為了準時回家把甘川洞、遊艇這種重點砍掉）
+      // 同一級之內先砍推薦度低的（別為了準時回家把首里城、賞鯨這種重點砍掉），同級同分砍排在後面的
       const recOf = st => (st.type === 'cell' && st.cell && st.cell.item) ? (st.cell.item.rec || 0) : 0;
-      let si = -1, best = Infinity, bestRec = Infinity;
-      day.seq.forEach((st, i) => {
-        const r = rank(st), rc = recOf(st);
-        if (r < best || (r === best && rc < bestRec) || (r === best && rc === bestRec && i > si)) {
-          best = r; bestRec = rc; si = i;
-        }
-      });
-      if (si < 0) break;
-      // 只剩自己勾的項目或正餐可砍、又只超時一點點 → 寧可晚幾分鐘回飯店，也不要犧牲重點行程或整天沒好好吃飯
-      if (best >= 3 && back <= limit + 30) { day.curfewSoft = true; break; }
+      const order = day.seq.map((st, i) => ({ i, r: rank(st), rc: recOf(st) }))
+        .sort((a, b) => (a.r - b.r) || (a.rc - b.rc) || (b.i - a.i));
+      // 依優先序逐一試砍，但只砍「拿掉真的會提早回飯店」的站：
+      // 後面若有固定時段撐住的站（例如 20:30 才開始的宵夜），砍掉前面的採購站一分鐘都省不到，
+      // 白白犧牲想逛的店——這種情況寧可誠實標示超時
+      let si = -1;
+      for (const c of order) {
+        // 只剩受保護的站（手動排序／手動指定）可砍 → 尊重使用者的安排，僅標示超時
+        if (c.r >= 6) break;
+        // 只剩自己勾的項目或正餐可砍、又只超時一點點 → 寧可晚幾分鐘回飯店，也不要犧牲重點行程或整天沒好好吃飯
+        if (c.r >= 3 && back <= limit + 30) break;
+        const seq2 = day.seq.slice(); seq2.splice(c.i, 1);
+        const tmp = { key: day.key, cluster: day.cluster, seq: seq2 };
+        computeTimeline(tmp);
+        const hr = tmp.tl.filter(r => r.k === 'hotel').pop();
+        if (hr && hr.t < back) { si = c.i; break; }
+      }
+      if (si < 0) { day.curfewSoft = true; break; }
       const [removed] = day.seq.splice(si, 1);
       (day.trimmed = day.trimmed || []).push(removed);
+      if (removed.type === 'store') {
+        (day.trimmedStores = day.trimmedStores || []).push(removed);
+        removed.trimmedOut = true;   // 供採購清單 hint 判斷（removed 就是門市群組物件）
+      }
       if (removed.type === 'cell' && removed.cell) {
         if (removed.cell.item && !removed.cell.suggest) day.backup.push(removed.cell.item);
         if (removed.slotKey) {
@@ -812,6 +867,7 @@
       : (day.seq[0] && day.seq[0].slotKey === 'brunch' ? 510 : 540);
     let transCost = 0, transMins = 0, transKm = 0;
     let lastMeal = -999;                       // 上一頓正餐的開始時間
+    let lastMealEnd = -999;                    // 上一頓正餐「吃完」的時間（宵夜間隔用）
     const MEAL_GAP = (CONFIG.mealGap != null) ? CONFIG.mealGap : 210;
     let lastGap = MEAL_GAP;                    // 上一頓要求的間隔（輕食減半）
     const modeCnt = { walk: 0, taxi: 0, metro: 0, van: 0 };
@@ -853,12 +909,22 @@
       if (mealItem) {
         lastMeal = start;
         lastGap = isLightMeal(stop.cell.item) ? Math.round(MEAL_GAP / 2) : MEAL_GAP;
+        lastMealEnd = start + stayOfStop(stop, day);   // 記住這頓吃完的時間，宵夜要看它
+      }
+      // 宵夜（居酒屋二攤、深夜甜點這類）不算正餐、不受 3.5 小時限制，
+      // 但也不該晚餐一放下筷子就接著吃——至少留 supperGap 分鐘消化
+      let supperWait = 0;
+      const supperItem = stop.type === 'cell' && stop.cell && stop.cell.item &&
+        stop.cell.item.kind === 'food' && stop.cell.item.slot === 'supper';
+      if (supperItem) {
+        const SG = (CONFIG.supperGap != null) ? CONFIG.supperGap : 60;
+        if (start < lastMealEnd + SG) { supperWait = ceil5(lastMealEnd + SG) - start; start = ceil5(lastMealEnd + SG); }
       }
       const stay = stayOfStop(stop, day);
       const end = start + stay;
       if (stop.type === 'store') rows.push({ k: 'store', t: start, end, stay, g: stop, si });
       else if (stop.type === 'd5shop') rows.push({ k: 'd5shop', t: start, end, stay, stores: stop.stores, warn: stop.warn, si });
-      else rows.push({ k: 'item', t: start, end, stay, slotKey: stop.slotKey, cell: stop.cell, si, batch: bInfo, at: aInfo, arrAt: ceil5(arr0) });
+      else rows.push({ k: 'item', t: start, end, stay, slotKey: stop.slotKey, cell: stop.cell, si, batch: bInfo, at: aInfo, arrAt: ceil5(arr0), supperWait });
       time = end;
       cur = pos;
     });
@@ -1040,17 +1106,6 @@
       suggest(d5, 'd5lunch', f => ['kokusai', 'kencho', 'makishi', 'asato'].indexOf(f.zone) >= 0);
     }
 
-    /* 下午與傍晚皆空 → 插入免費散步錨點，避免行程出現大空窗 */
-    days.forEach(d => {
-      const a = ANCHORS[d.cluster];
-      if (!a) return;
-      if (d.full) {
-        if (!d.slots.afternoon && !d.slots.evening) d.slots.afternoon = { anchor: a };
-      } else if (d.key === 'd1' && !d.slots.pmstroll) {
-        d.slots.pmstroll = { anchor: a };
-      }
-    });
-
     /* ── 購物 → 具體門市 → 排入行程 ── */
     const byStore = {};
     shops.forEach(it => {
@@ -1070,6 +1125,28 @@
     const otherGroups = storeGroups.filter(g => g !== cvsGroup && !pinnedEarly.includes(g) && !smGroups.includes(g));
     const pinnedD5Other = otherGroups.filter(g => stPinOf(g) === 4);
     const autoOther = otherGroups.filter(g => stPinOf(g) == null);
+    // 國際通門市要排 Day 1 而不是 Day 5 上午：中午後才開門、返程日（週日）公休（牧志市場逢第4週日休）、
+    // 或需要製作時間的店（store.d1，例如訂製品當天取件，離場前排不下）
+    const wantD1 = g => (g.store.open || 0) >= 660 || !openOnDay(g.store, days[4]) || !!g.store.d1;
+
+    /* 這天預計會有幾個採購站？（散步錨點要不要讓位就看這個） */
+    const storeLoad = i => pinnedEarly.filter(g => stPinOf(g) === i).length +
+      (i === 0 ? smGroups.filter(g => wantD1(g) && stPinOf(g) !== 4).length : 0) +
+      autoOther.filter(g => days[i] && days[i].full && ZONES[g.store.zone].cluster === days[i].cluster).length;
+
+    /* 下午與傍晚皆空 → 插入免費散步錨點，避免行程出現大空窗。
+       但購物量大（≥2 站）的日子不插：填充散步佔掉的 60 分鐘，
+       會把使用者真正指定的店擠到營業時間外 */
+    days.forEach((d, di) => {
+      const a = ANCHORS[d.cluster];
+      if (!a) return;
+      if (storeLoad(di) >= 2) return;
+      if (d.full) {
+        if (!d.slots.afternoon && !d.slots.evening) d.slots.afternoon = { anchor: a };
+      } else if (d.key === 'd1' && !d.slots.pmstroll) {
+        d.slots.pmstroll = { anchor: a };
+      }
+    });
 
     /* 每日停靠序列（不含 d5shop 佔位，稍後客製） */
     days.forEach(d => {
@@ -1093,7 +1170,7 @@
 
     /* 中午後才開門、或返程日（週日）公休的國際通店家（如牧志市場逢第4週日休）
        改排 Day 1 下午～傍晚，不塞進 Day 5 上午的最終採購（會撲空） */
-    const lateSm = smGroups.filter(g => ((g.store.open || 0) >= 660 || !openOnDay(g.store, days[4])) && stPinOf(g) !== 4);
+    const lateSm = smGroups.filter(g => wantD1(g) && stPinOf(g) !== 4);
     const d5Sm = smGroups.filter(g => !lateSm.includes(g));
     lateSm.forEach(g => days[0].seq.push(g));
 
@@ -1102,7 +1179,7 @@
       const day = days[stPinOf(g)];
       g.pinnedStore = true;
       day.seq.push(g);
-      if (!openOnDay(g.store, day)) day.pinnedClosed = (day.pinnedClosed || []).concat({ name: g.store.name });
+      if (!openOnDay(g.store, day)) day.pinnedClosed = (day.pinnedClosed || []).concat(g.store);
     });
 
     /* Day 5：國際通最終採購（客製列出門市與品項） */
@@ -1187,6 +1264,11 @@
             if (bi >= 0) d.backup.splice(bi, 1);
             if (stop.slotKey) d.slots[stop.slotKey] = stop.cell;
           }
+          if (stop.type === 'store') {   // 門市補得回去 → 從「塞不下」名單移除
+            stop.trimmedOut = false;
+            const tsi = (d.trimmedStores || []).indexOf(stop);
+            if (tsi >= 0) d.trimmedStores.splice(tsi, 1);
+          }
           const ti = d.trimmed.indexOf(stop);
           if (ti >= 0) d.trimmed.splice(ti, 1);
         });
@@ -1226,7 +1308,7 @@
       d.seq.forEach((st, i) => {
         if (st.type === 'd5shop') return;
         const seq2 = d.seq.slice(); seq2.splice(i, 1);
-        const tmp = { key: d.key, cluster: d.cluster, seq: seq2, backup: [], slots: d.slots, slotKeys: d.slotKeys, dow: d.dow };
+        const tmp = { key: d.key, cluster: d.cluster, seq: seq2, backup: [], slots: d.slots, slotKeys: d.slotKeys, dow: d.dow, md: d.md };
         computeTimeline(tmp);
         const save = base - (tmp.transMins || 0);
         if (!best || save > best.save) {
@@ -1261,6 +1343,7 @@
 
     /* 採購清單分組（依門市 → 對應日提示） */
     const shopGroups = {};
+    const unplacedStores = [];
     // 這個門市實際被排進哪一天？（沒排進去就別謊稱順路）
     const placedDayOf = g => {
       const i = days.findIndex(d => (d.seq || []).some(st => st === g) ||
@@ -1275,10 +1358,16 @@
       if (g.storeId === 'cvs') hint = '隨時順手買｜' + g.store.name;
       else if (g.closedDay) hint = `⚠️ 這趟排不到（該店在對應行程日公休）｜${g.store.name}`;
       else if (di >= 0) hint = `Day ${di + 1} ${g.pinnedStore ? '手動指定採買' : '順路採買'}｜${g.store.name}`;
-      else if (cl === 'kokusai' && ((g.store.open || 0) >= 660 || !openOnDay(g.store, days[4]))) hint = 'Day 1 順路採買（該店返程日公休或中午後才開門）｜' + g.store.name;
+      else if (g.trimmedOut && g.pinnedStore) hint = `⚠️ 你指定的 Day ${((state.stPins[g.storeId] || {}).d || 0) + 1} 塞不進這間店的營業時間，請改指定別天｜${g.store.name}`;
+      else if (g.trimmedOut) hint = `⚠️ 對應日塞不下（營業時間或回飯店門禁排不進去），想買請改指定別天｜${g.store.name}`;
+      else if (cl === 'kokusai' && wantD1(g)) hint = `Day 1 順路採買（${g.store.d1 ? '需要製作時間，離場前排不下' : '該店返程日公休或中午後才開門'}）｜${g.store.name}`;
       else if (cl === 'kokusai') hint = 'Day 5 上午集中採買（可提前 Day 1 傍晚）｜' + g.store.name;
       else hint = `⚠️ 時間排不進行程，想買要自行安排｜${g.store.name}`;
       shopGroups[hint] = { store: g.store, storeId: g.storeId, pinned: !!g.pinnedStore, items: g.items };
+      // 排不進行程的門市另外收集，結果頁頂部集中呈現（不用拉到最下面一個一個找）
+      if (g.storeId !== 'cvs' && di < 0)
+        unplacedStores.push({ storeId: g.storeId, store: g.store, items: g.items,
+          reason: hint.split('｜')[0], pinned: !!g.pinnedStore });
     });
 
     /* 費用估算 */
@@ -1287,7 +1376,7 @@
     let shopCost = 0;
     shops.forEach(it => { shopCost += it.est || 0; });
 
-    return { days, shopGroups, cost, shopCost, transTotal, sel, spots, foods, shops };
+    return { days, shopGroups, unplacedStores, cost, shopCost, transTotal, sel, spots, foods, shops };
   }
 
   /* ============================================================
@@ -1614,13 +1703,15 @@
     }
     if (r.k === 'store') {
       const g = r.g;
-      const lateWarn = r.end > (g.store.close || 1440)
+      const lateWarn = (g.store.close != null && r.t >= g.store.close)
+        ? `<div class="store-note">🚫 <b>該店 ${fmtT(g.store.close)} 打烊，這個時間已經關門</b>——請用「▲ 提早」移到打烊前，或改指定別天。</div>`
+        : r.end > (g.store.close || 1440)
         ? '<div class="store-note">⚠️ 此時段可能接近打烊，請以現場營業時間為準；來不及可改列自由採買。</div>' : '';
       const earlyWarn = g.store.open != null && r.t < g.store.open
         ? `<div class="store-note">⚠️ 該店 ${fmtT(g.store.open)} 才開門，請留意抵達時間或往後挪。</div>` : '';
       return entryHtml(fmtT(r.t), '順路採購', `
         <div class="e-name">🛍️ ${esc(g.store.name)} ${g.pinnedStore ? '<span class="badge pin">📌 手動指定</span>' : ''}<span class="stay">⏳ 停留約${durTxt(r.stay)}</span></div>${earlyWarn}
-        <div class="store-items">${g.items.map(it => `<span>☐ ${esc(it.name)}</span>`).join('')}</div>
+        <div class="store-items">${g.items.map(piChip).join('')}</div><div class="pi-panel no-print" hidden></div>
         ${g.store.note ? `<div class="store-note">💡 ${esc(g.store.note)}</div>` : ''}${lateWarn}
         ${linkRow(g.store.links, g.store.links && g.store.links.g)}
         ${storeBar(g, day, r.si)}`, 'storestop');
@@ -1634,7 +1725,7 @@
       }
       const inner = r.stores.map(g => `
         <div class="store-b"><b>🛍️ ${esc(g.store.name)}</b>
-          <div class="store-items">${g.items.map(it => `<span>☐ ${esc(it.name)}</span>`).join('')}</div>
+          <div class="store-items">${g.items.map(piChip).join('')}</div><div class="pi-panel no-print" hidden></div>
           ${g.store.note ? `<div class="store-note">💡 ${esc(g.store.note)}</div>` : ''}
           ${linkRow(g.store.links, g.store.links && g.store.links.g)}
           <div class="e-edit no-print"><span class="ed-lab">這間店</span><select class="ed-sel" data-stday="${g.storeId}">
@@ -1667,6 +1758,7 @@
         <span class="stay">⏳ 停留約${durTxt(r.stay)}</span></div>
       <div class="e-meta">📌 ${esc(it.area || '')} ｜ 💰 ${esc(it.price || '')}</div>
       ${it.wait ? `<div class="e-meta sub">⏱ ${esc(it.wait)}</div>` : ''}
+      ${r.supperWait ? `<div class="e-meta sub">🍽 晚餐吃完先消化——宵夜自動延後 ${durTxt(r.supperWait)} 開始（中間是自由時間，可先回飯店放戰利品）</div>` : ''}
       ${siblings(it).length ? `<div class="e-meta sub">🏪 走不到也沒關係：${siblings(it).map(s => esc(s.area)).join('、')}也有分店</div>` : ''}
       ${it.close != null && r.end > it.close ? `<div class="e-meta warnline">⚠️ 這家約 ${fmtT(it.close)} 打烊，此時段可能來不及——建議提前或改選同品牌其他分店</div>` : ''}
       ${atHtml(r)}${batchHtml(r)}
@@ -1911,6 +2003,38 @@
       <span class="ver-hint">每次產生行程自動存一版（此裝置保留最近 10 版）；點版本即切換採用，行程與試算表同步都會用該版本。</span></div>`;
   }
 
+  /* 排不進行程的門市 → 結果頁頂部集中面板：原因、想買清單、就地改排 */
+  function unplacedHtml(plan) {
+    const unp = plan.unplacedStores || [];
+    if (!unp.length) return '';
+    const cards = unp.map(u => {
+      const st = u.store;
+      const hours = (st.open != null || st.close != null)
+        ? `⏰ ${st.open != null ? fmtT(st.open) : '?'}–${st.close != null ? fmtT(st.close) : '?'}${st.closedDow && st.closedDow.length ? '・週' + st.closedDow.map(d => DOW_TXT[d]).join('') + '休' : ''}`
+        : '';
+      const pin = state.stPins[u.storeId];
+      const names = u.items.slice(0, 3).map(it => esc(it.name)).join('、') +
+        (u.items.length > 3 ? ` …等 ${u.items.length} 項` : '');
+      return `<div class="unp-card" id="unp-${u.storeId}">
+        <div class="unp-name">🛍️ ${esc(st.name)} <span class="unp-hours">${hours}</span></div>
+        <div class="unp-why">${esc(u.reason)}</div>
+        <div class="unp-items">想買：${names}</div>
+        <div class="unp-act"><span class="ed-lab">改排到</span>
+          <select class="ed-sel" data-stday="${u.storeId}">
+            <option value=""${!pin ? ' selected' : ''}>系統自動安排</option>
+            ${[0, 1, 2, 3, 4].map(i => `<option value="${i}"${pin && pin.d === i ? ' selected' : ''}>📌 Day ${i + 1}${i === 4 ? '（返程上午）' : ''}</option>`).join('')}
+          </select>
+          <a class="unp-jump" href="#sg-${u.storeId}">↓ 完整品項</a></div>
+      </div>`;
+    }).join('');
+    return `<details class="unp-wrap no-print" id="unpwrap" data-ui="unp"${uiOpen.unp ? ' open' : ''}>
+      <summary class="unp-head">🛒 <b>${unp.length} 間門市這次排不進行程</b><i class="sum-hint">點開看原因、就地改排到別天</i></summary>
+      <div class="unp-list">${cards}</div>
+    </details>`;
+  }
+
+  const uiOpen = { unp: false, ov: false, hint: false };   // 可折疊區塊目前展開與否（重排後維持）
+
   let lastPlan = null;         // 最近一次產生的行程（▲▼ 排序要讀當天的實際停靠序列）
   let fullDayInfo = [];        // 整天對調用：[{ idx:第幾天, cluster:生活圈 }]
   function renderResult(plan) {
@@ -1919,6 +2043,7 @@
     const hv = hotelInfo();
     const apR = airportInfo();
     const c = counts();
+    const unpHtml = unplacedHtml(plan);
     fullDayInfo = plan.days.map((d, i) => ({ idx: i, cluster: d.cluster })).filter((_, i) => plan.days[i].full);
     const dayHtml = plan.days.map((d, i) => {
       const cl = CLUSTERS[d.cluster];
@@ -1960,12 +2085,14 @@
           : `行程試算全程約${durTxt(span)}，在 10 小時基準內。`}中文司機檔期熱門，請提前 2-3 個月預訂。</div>`;
       })() : '';
       const squeezeTip = d.squeeze ? `<div class="tip holiday">⚠️ 離場前時間較緊：建議把部分採買或用餐提前，或改到機場解決。</div>` : '';
-      const pinClosedTip = (d.pinnedClosed && d.pinnedClosed.length) ? `<div class="tip holiday">📌 你手動把 ${d.pinnedClosed.map(x => esc(x.name)).join('、')} 排在這天，但它<b>週${DOW_TXT[d.dow]}公休</b>——行程照你的安排保留，出發前請再確認。</div>` : '';
-      const closedTip = (d.closedShops && d.closedShops.length) ? `<div class="tip holiday">🚫 ${d.closedShops.map(g => esc(g.store.name)).join('、')}<b>本日（週${DOW_TXT[d.dow]}）公休</b>——${d.closedShops.map(g => g.items.map(i => esc(i.name)).join('、')).join('；')} 買不到。${d.full ? '可用右上角「🔄 換天」把這天和別天整個對調，避開公休日；' : ''}或另外找地方買，出發前先確認營業狀況。</div>` : '';
+      const ordTip = state.ord[i] ? `<div class="tip">🔒 <b>本日順序已手動固定</b>——系統只重算時間與交通，不會重排你定的先後；晚開門店家自動分流等「新加入的站」若塞不下仍會退回採購清單。<button class="ed" data-dayauto="${i}" style="margin-left:6px">↩ 這天改回自動排序</button></div>` : '';
+      const trimTip = (d.trimmedStores && d.trimmedStores.length) ? `<div class="tip holiday">⏱ 這天塞不下 ${d.trimmedStores.length} 間門市：${d.trimmedStores.map(x => `<a class="tt-link" href="#unp-${x.storeId}">${esc(x.store.name)}</a>`).join('、')}——<a class="tt-link" href="#unpwrap">到頁面上方的「排不進的門市」面板</a>可直接改排到別天。</div>` : '';
+      const pinClosedTip = (d.pinnedClosed && d.pinnedClosed.length) ? `<div class="tip holiday">📌 你手動把 ${d.pinnedClosed.map(x => esc(x.name)).join('、')} 排在這天，但它<b>${esc(closedWhy(d.pinnedClosed[0], d))}</b>——行程照你的安排保留，出發前請再確認。</div>` : '';
+      const closedTip = (d.closedShops && d.closedShops.length) ? `<div class="tip holiday">🚫 ${d.closedShops.map(g => esc(g.store.name)).join('、')}<b>本日${esc(closedWhy(d.closedShops[0].store, d))}</b>——${d.closedShops.map(g => g.items.map(i => esc(i.name)).join('、')).join('；')} 買不到。${d.full ? '可用右上角「🔄 換天」把這天和別天整個對調，避開公休日；' : ''}或另外找地方買，出發前先確認營業狀況。</div>` : '';
       const mealTip = (d.noLunch || d.noDinner) ? `<div class="tip holiday">🍽️ 這天${d.noLunch && d.noDinner ? '中午與晚上都' : d.noLunch ? '中午' : '晚上'}沒有安排用餐——${d.noLunch && !d.noDinner ? '上午的行程較滿，記得在景點附近先墊個東西' : '建議從下面的同區備選挑一家，或在附近隨機找一家'}。</div>` : '';
       const lunchTip = d.lunchDropped ? `<div class="tip">🍜 登機前時間有限，午餐建議外帶輕食或在機場用餐（那霸機場國內線美食街選擇不少）。</div>` : '';
       return `
-      <section class="day" style="--c:${cl.color}">
+      <section class="day" id="day${i + 1}" style="--c:${cl.color}">
         <header class="day-head">
           <div class="day-no">Day ${i + 1}</div>
           <div><h2>${d.date}｜${esc(d.theme)}</h2><div class="day-cl">${esc(cl.label)}</div></div>
@@ -1974,7 +2101,7 @@
         </header>
         ${dayTips[d.key] ? `<div class="tip holiday">${esc(dayTips[d.key])}</div>` : ''}
         <div class="tip">🚌 ${esc(TRANSIT[d.cluster])}</div>
-        ${transTip}${charterTip}${squeezeTip}${pinClosedTip}${closedTip}${mealTip}${lunchTip}
+        ${transTip}${charterTip}${squeezeTip}${ordTip}${trimTip}${pinClosedTip}${closedTip}${mealTip}${lunchTip}
         ${routeMapHtml(d)}
         <div class="timeline">${rows}</div>
         ${backup}
@@ -1996,7 +2123,7 @@
     let shopHtml = '';
     const groups = Object.keys(plan.shopGroups);
     if (groups.length) {
-      shopHtml = `<section class="shoplist"><h2>🛍️ 採購清單（${plan.shops.length} 項）</h2>
+      shopHtml = `<section class="shoplist" id="shoplist"><h2>🛍️ 採購清單（${plan.shops.length} 項）</h2>
         <p class="hint">💡 已依「實際門市」分組並排進每日行程。<b>免稅：</b>日本為「購買時直接免稅」制——同一店家同一天合計滿 5,000円（未稅），結帳出示護照即免 8% 消費稅（唐吉訶德、PARCO CITY、御菓子御殿、わした本店均支援）。消耗品（食品藥妝）會裝入密封袋，出境前不可拆封使用；部分百貨另收 1-2% 手續費。機場沒有退稅櫃台，請在店內辦妥。</p>
         ${groups.map(g => {
           const grp = plan.shopGroups[g];
@@ -2009,7 +2136,7 @@
             : '';
           // 門市備註（省錢撇步、退稅方式、避雷品項…）不該只在「有排進行程」時才看得到
           const note = grp.store && grp.store.note ? `<div class="store-note">💡 ${esc(grp.store.note)}</div>` : '';
-          return `<div class="shop-group"><h3>📍 ${esc(g)}</h3>${note}${dayPick}${grp.items.map(it => {
+          return `<div class="shop-group"${grp.storeId ? ` id="sg-${grp.storeId}"` : ''}><h3>📍 ${esc(g)}</h3>${note}${dayPick}${grp.items.map(it => {
             const ci = catInfo(it);
             const safeTxt = it.safe === 'warn' ? '<span class="badge warn">⚠️ 成分含肉禁帶</span>' :
               it.safe === 'ok-check' ? '<span class="badge note">須託運</span>' : '';
@@ -2022,7 +2149,7 @@
 
     const est = plan.cost;
     $('#result-inner').innerHTML = `
-      <header class="r-head">
+      <header class="r-head" id="rtop">
         <button class="back no-print" id="backBtn">← 回到勾選頁調整</button>
         ${state.fromShare ? '<div class="share-note no-print">🔗 這是分享連結的行程檢視，點左邊按鈕可調整重排</div>' : ''}
         <h1>🌺 我們的沖繩行程出爐啦！</h1>
@@ -2042,8 +2169,9 @@
             <div class="sub">🚕 交通預估 ${money(plan.transTotal)}（${PARTY()}人合計，含包車日包車費）</div>
             ${plan.shopCost ? `<div class="sub">🛍️ 購物清單全買約 ${money(plan.shopCost)}</div>` : ''}</div>
         </div>
-        <div class="ov-wrap"><b>勾選總覽：</b>${overview}</div>
-        <div class="ov-wrap edit-hint no-print">✏️ <b>可以手動微調：</b>整天想換日子的話，用 Day 2～4 標題右邊的 <b>🔄 換天</b>——例如按 Day 2 的「↔ Day 3」，兩天的行程就整個對調（同一天的項目一起搬，公休日與交通會重算）。每個停靠點（景點、美食、<b>採購站也一樣</b>）下方都有「調整」列——<b>▲ ▼</b> 直接改當天的先後順序（改完出發抵達時間全部重新試算）、<b>◀ ▶</b> 搬到別天、<b>時段選單</b>改成當天其他時段、<b>✕ 移除</b>拿掉不想去的；Day 5 最終採購裡的每間店還能用下拉選單提前到別天買。改完系統會立刻重排整份行程（交通、用餐時間、回飯店時間都會重新計算），手動指定的會標上 📌 並優先保留、手動排的順序不會被系統推翻。</div>
+        <details class="ov-wrap" data-ui="ov"${uiOpen.ov ? ' open' : ''}><summary><b>✅ 勾選總覽</b><i class="sum-hint">${plan.sel.filter(i => i.kind !== 'shop').length} 個景點與餐飲・點開檢視哪些有排入</i></summary><div class="ov-body">${overview}</div></details>
+        ${unpHtml}
+        <details class="ov-wrap edit-hint no-print" data-ui="hint"${uiOpen.hint ? ' open' : ''}><summary>✏️ <b>怎麼手動微調</b><i class="sum-hint">換天／改順序／改時段／預約時間…使用說明</i></summary><div class="ov-body">整天想換日子的話，用 Day 2～4 標題右邊的 <b>🔄 換天</b>——例如按 Day 2 的「↔ Day 3」，兩天的行程就整個對調（同一天的項目一起搬，公休日與交通會重算）。每個停靠點（景點、美食、<b>採購站也一樣</b>）下方都有「調整」列——<b>▲ ▼</b> 直接改當天的先後順序（改完出發抵達時間全部重新試算）、<b>◀ ▶</b> 搬到別天、<b>時段選單</b>改成當天其他時段、<b>✕ 移除</b>拿掉不想去的；Day 5 最終採購裡的每間店還能用下拉選單提前到別天買。改完系統會立刻重排整份行程（交通、用餐時間、回飯店時間都會重新計算），手動指定的會標上 📌 並優先保留、手動排的順序不會被系統推翻（該日會標「🔒 本日順序已手動固定」，可一鍵改回自動）。餐廳若已訂位，在「調整」列填上<b>預約時間</b>，整天會以它為錨點反推。</div></details>
         ${versionBarHtml()}
         <div class="r-actions no-print">
           <button id="copyText">📋 複製文字版行程</button>
@@ -2056,6 +2184,10 @@
             state.dayCl ? '已換過天' : ''].filter(Boolean).join('、')}）</button>` : ''}
         </div>
       </header>
+      <nav class="daynav no-print"><span class="dn-lab">跳到</span>
+        ${plan.days.map((d, i) => `<a href="#day${i + 1}">D${i + 1}<i>${esc((CLUSTERS[d.cluster] || {}).short || '')}</i></a>`).join('')}
+        ${Object.keys(plan.shopGroups).length ? '<a href="#shoplist">🛍️ 採購清單</a>' : ''}
+        <a href="#rtop" class="dn-top">⬆ 頂部</a></nav>
       ${dayHtml}
       ${shopHtml}
       <footer class="r-foot">
@@ -2067,11 +2199,20 @@
       </footer>
       ${sheetModalHtml()}`;
 
+    $$('#result-inner details[data-ui]').forEach(d =>
+      d.addEventListener('toggle', () => { uiOpen[d.dataset.ui] = d.open; }));
+
     $('#backBtn').addEventListener('click', () => { state.fromShare = false; showPick(); });
 
     $('#copyText').addEventListener('click', () => copyToClipboard(planText(plan), '#copyText', '📋 已複製！貼到 LINE 給旅伴看吧'));
     $('#copyLink').addEventListener('click', () => copyToClipboard(shareUrl(), '#copyLink', '🔗 連結已複製！'));
-    $('#printBtn').addEventListener('click', () => window.print());
+    $('#printBtn').addEventListener('click', () => {
+      // 收合中的 details 印不出內容：列印前全部展開，印完還原
+      const closed = $$('#result-inner details:not([open])');
+      closed.forEach(d => { d.open = true; });
+      window.print();
+      closed.forEach(d => { d.open = false; });
+    });
     $('#sheetBtn').addEventListener('click', () => { $('#gsMask').style.display = ''; });
     bindSheetModal(plan);
     bindVersionBar();
@@ -2414,8 +2555,46 @@
   /* 結果頁的委派事件只綁一次——#result-inner 不會被重建，
      每次渲染都重綁會讓同一次點擊觸發 N 個處理器（呼叫次數指數成長） */
   function bindResultEvents() {
+    // 採購清單品項：點一下在同一區塊展開價格／說明／商品照片；再點一次或點別的品項就切換
+    $('#result-inner').addEventListener('click', e => {
+      const b = e.target.closest('button.pi');
+      if (!b) return;
+      e.preventDefault();
+      const wrap = b.closest('.store-items');
+      const panel = wrap && wrap.nextElementSibling;
+      if (!panel || !panel.classList.contains('pi-panel')) return;
+      const it = DB[b.dataset.pi];
+      const wasOn = b.classList.contains('on');
+      wrap.querySelectorAll('button.pi.on').forEach(x => x.classList.remove('on'));
+      if (wasOn || !it) { panel.hidden = true; panel.innerHTML = ''; return; }
+      b.classList.add('on');
+      panel.innerHTML = piDetail(it);
+      panel.hidden = false;
+    });
+    /* 站內錨點：JS 接管跳轉——先展開目標所在的收合區塊，再直接捲過去
+       （原生 hash 跳轉在長頁面會被 smooth scroll 靜默取消，且重複點同一個錨點沒反應） */
+    $('#result-inner').addEventListener('click', e => {
+      const a = e.target.closest('a[href^="#"]');
+      if (!a) return;
+      const t = document.getElementById(a.getAttribute('href').slice(1));
+      if (!t) return;
+      e.preventDefault();
+      for (let el = t; el; el = el.parentElement)
+        if (el.tagName === 'DETAILS' && !el.open) { el.open = true; if (el.dataset.ui) uiOpen[el.dataset.ui] = true; }
+      // 不用 scrollIntoView：實測會出現「目標位置＋當前捲動量」的加法異常，
+      // 自己算絕對位置最可靠（扣掉 sticky 快速列的高度）
+      const nav = $('.daynav');
+      const off = (nav ? nav.offsetHeight : 0) + 12;
+      window.scrollTo(0, Math.max(0, t.getBoundingClientRect().top + window.scrollY - off));
+    }, true);
     $('#result-inner').addEventListener('click', e => {
       if (e.target.closest('#resetPins')) { state.pins = {}; state.stPins = {}; state.ord = {}; state.at = {}; state.dayCl = null; reflow('已還原成系統自動安排'); return; }
+      const da = e.target.closest('[data-dayauto]');
+      if (da) {
+        delete state.ord[+da.dataset.dayauto];
+        reflow(`Day ${+da.dataset.dayauto + 1} 已改回自動排序，路線重新最佳化`);
+        return;
+      }
       /* ▲▼ 本日排序：以當天實際停靠序列為底，交換相鄰兩站後存成該天的手動順序 */
       const ro = e.target.closest('[data-ro]');
       if (ro) {
