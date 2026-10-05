@@ -194,11 +194,11 @@
   const uberBtn = (pos, addr) => pos && pos.lat
     ? `<a class="uber" href="${esc(uberLink(pos, addr))}" target="_blank" rel="noopener" title="開 Uber App 並直接把目的地設成這裡（帶座標，不用打字搜尋）">🚗 Uber 直接設目的地</a>`
     : '';
-  // 項目座標（Uber／導航用）：景點／美食／住宿用自身座標；商品用所屬門市
+  // 項目座標（Uber／導航用）：景點／美食／住宿用自身座標。
+  // 商品不給座標——叫車與導航鈕放在「門市」那一列，避免商品自帶的店址和所屬門市座標對不上
   const posOfStore = st => st && st.lat ? { lat: st.lat, lng: st.lng, name: (st.links && st.links.g) || st.name } : null;
   const posOfItem = it => {
-    if (!it) return null;
-    if (it.kind === 'shop') return posOfStore(it._store);
+    if (!it || it.kind === 'shop') return null;
     return it.lat ? { lat: it.lat, lng: it.lng, name: it.jp || (it.links && it.links.g) || it.name } : null;
   };
   const posOfHotel = h => ({ lat: h.lat, lng: h.lng, name: (h.links && h.links.g) || h.name });
