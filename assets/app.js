@@ -230,6 +230,8 @@
     if (links.tel) {
       a.push(`<button type="button" class="telbtn" data-tel="${esc(links.tel)}" title="點一下複製電話——貼到 Google 地圖搜尋可直達店家，需要訂位也可直接撥打（日本國碼 +81，去掉開頭 0）">📞 ${esc(links.tel)} <em>複製</em></button>`);
     }
+    // 線上訂位頁：逐一開頁核對過「是這家店、而且真的能線上訂」才放（查無或對不上的一律不放）
+    if (links.rs) a.push(`<a class="bk" href="${esc(links.rs)}" target="_blank" rel="noopener" title="開這家店的線上訂位頁（已核對店名與地址）；人數與取消規定以訂位頁為準">📅 線上訂位${links.rsN ? '・' + esc(links.rsN) : ''}</a>`);
     if (links.g) a.push(`<a class="gdir" href="${esc(gmapOf(links))}" target="_blank" rel="noopener" title="${links.gpid ? '用 Google 的店家代號直接開到這一家的頁面（不靠搜尋、不會跑錯分店）' : '開 Google 地圖搜尋這個地點'}">📍 Google地圖・${links.gpid ? '店家頁直達' : 'App直達'}</a>`);
     if (links.zh) a.push(`<a href="${esc(links.zh)}" target="_blank" rel="noopener">🇹🇼 繁中介紹</a>`);
     if (links.o) a.push(`<a href="${esc(links.o)}" target="_blank" rel="noopener">🌐 官網／介紹</a>`);
@@ -2304,6 +2306,7 @@
         <div class="tip">🚕 <b>叫車：</b>黑色 <b>「🚗 Uber 直接設目的地」</b>點了就開 Uber 並把目的地設好（帶座標、不用打字；那霸一帶可叫 Uber Taxi）。黃色 <b>「🚕 地址」</b>鈕複製 Google 登錄的日文地址——貼進 GO／DiDi 的目的地，或直接把畫面拿給司機看；${PARTY() > 4 ? `${PARTY()} 人要分 ${cabInfo().cabs} 台車，把地址傳到群組讓每台車都有。` : ''}大型景點另標「🚖 下車點」（例如首里城到首里杜館、齋場御嶽只能到物產館停車場），照著說最快入場。每天「回飯店」那一列也放了飯店地址。</div>
         <div class="tip">📞 <b>電話按鈕：</b>點一下即複製號碼——需要訂位可直接撥打（日本國碼 +81，去掉號碼開頭的 0），也可以報給包車司機輸入車用導航。</div>
         <div class="tip">📄 <b>存成 PDF 帶著走：</b>電腦與 Android 用「🖨️ 列印／存 PDF」即可保留連結；iPhone 的列印預覽會把超連結拿掉，請改按「📄 PDF 版面」再用 Safari 分享 → 選項 → PDF。兩種方式每一站都會多印一行短網址，PDF 裡點得動。</div>
+        <div class="tip">📅 <b>線上訂位：</b>卡片上有橘色「📅 線上訂位」鈕的餐廳（琉球之牛、本部牧場、阿古豬隱家、我那霸、大家、浜の家、ちゃぁぶ〜），連結都逐一開頁核對過店名與地址，點了直接到那家的訂位頁；其中琉球之牛「只收線上訂位、每組 2-7 人」，大家「線上訂位只開放到 2 天前」。沒有按鈕的店請用電話鈕。</div>
         <div class="tip">🎫 <b>預約提醒：</b>10 人座包車（中文司機）請提前 2-3 個月預訂；賞鯨船、美麗海與 DMM 水族館門票可先在 Klook／KKday 買好（常有優惠）；琉球之牛、ちぬまん三線表演座位、阿古豬隱家等熱門餐廳建議出發前 2 週完成訂位（可請包車業者或飯店禮賓代訂）。冬季賞鯨出航與否由船公司當日清晨判定，請保留改期彈性。</div>
         <div class="tip">💡 ${esc(CONFIG.rateNote)}</div>
         <div class="tip buildtip">🔄 版本 ${esc(CONFIG.build || '-')}｜手機若看不到新功能（例如每個項目下方的「調整」列），代表載到快取的舊版：下拉重新整理，或關掉分頁重開即可。</div>
