@@ -13,6 +13,17 @@
   const $$ = (q, el) => Array.from((el || document).querySelectorAll(q));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   const gmap = q => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  /* Google 地圖「店家頁直達」：有 place id 就精準開到那一家（手機開 App、桌機開網頁），
+     不靠文字搜尋、不會跳到別的分店；place id 萬一失效，Google 會自動退回用 query（店名＋地址）搜尋 */
+  const gplace = (q, pid) => gmap(q) + (pid ? '&query_place_id=' + encodeURIComponent(pid) : '');
+  const gmapOf = L => gplace((L.g || '') + (L.addr ? ' ' + L.addr : ''), L.gpid);
+  // 從目前位置導航到座標（大眾運輸／步行／開車在 Google 地圖內切換；用座標、不吃搜尋）
+  const gnav = pos => 'https://www.google.com/maps/dir/?api=1&destination=' + pos.lat + ',' + pos.lng;
+  // Uber 深連結：帶座標直接把目的地設好（那霸一帶可叫 Uber Taxi；沒裝 App 會導到商店／網頁版）
+  const uberLink = (pos, addr) => 'https://m.uber.com/ul/?action=setPickup&pickup=my_location' +
+    '&dropoff[latitude]=' + pos.lat + '&dropoff[longitude]=' + pos.lng +
+    '&dropoff[nickname]=' + encodeURIComponent(pos.name || '') +
+    (addr ? '&dropoff[formatted_address]=' + encodeURIComponent(addr) : '');
   const gsearch = q => 'https://www.google.com/search?q=' + encodeURIComponent(q);
   // Klook：帶關鍵字開搜尋結果頁，購票比價（賞鯨、美麗海門票、包車）
   const klook = q => 'https://www.klook.com/zh-TW/search/?query=' + encodeURIComponent(q);
@@ -61,7 +72,7 @@
   const matchQ = (it, q) => !q || q.toLowerCase().split(/\s+/).every(t => it._hay.includes(t));
 
   /* 住宿卡片清單（單選：點擊設為住宿基地；距離以國際通中心「むつみ橋交差点」為基準） */
-  const KOKUSAI_CENTER = { lat: 26.2155, lng: 127.6866 };
+  const KOKUSAI_CENTER = { lat: 26.21611, lng: 127.68818 };
   const HOTEL_LIST = Object.entries(HOTELS).map(([k, h], i) => Object.assign({}, h, {
     id: 'h_' + k, hkey: k, kind: 'hotel', cluster: 'kokusai', _idx: 9000 + i,
     desc: h.pick + '。⚠️ ' + h.note + '。',
@@ -95,6 +106,8 @@
     pins: {},               // 手動調整：{ 項目id: { d:第幾天(0-4), s:時段key或null } }
     at: {},                 // 已預約的時段：{ 項目id: 分鐘 }（例如膠囊列車 14:00 → 840）
     stPins: {},             // 購物門市手動指定：{ 門市key: { d:第幾天(0-4) } }
+    exSt: {},               // 手動移除的採購站：{ 門市key: 1 }（品項退回排不進面板，可再改排回來）
+    exAn: {},               // 手動移除的散步／採購時間填充錨點：{ 天索引: 1 }
     ord: {},                // 當日手動排序：{ 第幾天: [停靠點key…] }（key＝項目id／st:門市／d5shop／anchor）
     dayCl: null,            // 整天對調：Day2-4 各自負責的生活圈，null＝系統自動安排
     flight: {},             // 航班時間（分鐘制）：{ obDep, obArr, ibDep, ibArr, ap }；空＝用預設示意時間
@@ -161,8 +174,9 @@
       <div class="ic"><div class="ic-t">🏨 住宿基地｜可選擇</div>
         <select id="hotelSel" class="fl-sel wide">${Object.entries(HOTELS).map(([k, x]) => `<option value="${k}"${k === (state.hotel || 'collective') ? ' selected' : ''}>${x.short}</option>`).join('')}</select><br>
         <span class="hotel-pick">${esc(h.pick)}</span><br>
-        <a href="${gmap(h.links.g)}" target="_blank" rel="noopener">📍 Google地圖</a>
-        ${h.links.o ? ` <a href="${esc(h.links.o)}" target="_blank" rel="noopener">🌐 官網</a>` : ''}</div>
+        <a href="${esc(gmapOf(h.links))}" target="_blank" rel="noopener">📍 Google地圖</a>
+        ${h.links.o ? ` <a href="${esc(h.links.o)}" target="_blank" rel="noopener">🌐 官網</a>` : ''}
+        ${h.links.addr ? `<div class="links-inline hero-addr">${addrBtn(h.links.addr, '複製飯店地址')} ${uberBtn(posOfHotel(h), h.links.addr)}</div>` : ''}</div>
       <div class="ic"><div class="ic-t">👥 同行人數｜可修改</div>
         <input type="number" id="partyIn" class="fl-in num" min="2" max="12" value="${n}"> 位大人<br>
         <span class="hotel-pick">計程車拆分（${cabInfo().cabs} 台）與包車車型（${esc(charterInfo().short)}）會依人數自動換算費用</span></div>
@@ -170,20 +184,61 @@
   }
 
   const gimg = q => 'https://www.google.com/search?udm=2&q=' + encodeURIComponent(q); // Google 圖片搜尋
-  function linkRow(links, imgQuery) {
+  /* 日文地址一鍵複製（叫車用）：GO／DiDi／Uber 打中文常找不到，貼 Google 地圖登錄的日文地址最穩；
+     按鈕直接把地址印出來，不貼也能把手機拿給計程車司機看。
+     addrX＝建物／樓層／地標（只顯示不複製，下車後找店用）；drop＝最佳下車點與省時提醒（大型景點才有） */
+  const addrBtn = (addr, label, addrX) => addr
+    ? `<button type="button" class="addrbtn" data-addr="${esc(addr)}" title="點一下複製日文地址——貼到 GO／DiDi／Uber 的目的地搜尋，或直接把畫面拿給計程車司機看（Google 地圖登錄地址，已逐一核對）">🚕 ${esc(addr)}${addrX ? ` <i>${esc(addrX)}</i>` : ''} <em>${label || '複製地址'}</em></button>`
+    : '';
+  const dropNote = drop => drop ? `<span class="drop">🚖 下車點：${esc(drop)}</span>` : '';
+  const uberBtn = (pos, addr) => pos && pos.lat
+    ? `<a class="uber" href="${esc(uberLink(pos, addr))}" target="_blank" rel="noopener" title="開 Uber App 並直接把目的地設成這裡（帶座標，不用打字搜尋）">🚗 Uber 直接設目的地</a>`
+    : '';
+  // 項目座標（Uber／導航用）：景點／美食／住宿用自身座標；商品用所屬門市
+  const posOfStore = st => st && st.lat ? { lat: st.lat, lng: st.lng, name: (st.links && st.links.g) || st.name } : null;
+  const posOfItem = it => {
+    if (!it) return null;
+    if (it.kind === 'shop') return posOfStore(it._store);
+    return it.lat ? { lat: it.lat, lng: it.lng, name: it.jp || (it.links && it.links.g) || it.name } : null;
+  };
+  const posOfHotel = h => ({ lat: h.lat, lng: h.lng, name: (h.links && h.links.g) || h.name });
+  /* 列印／PDF 用短網址：iPhone 用「列印預覽」存出來的 PDF 會把超連結拿掉（iOS 已知限制），
+     但 PDF 閱讀器會把「看得到的網址文字」自動變成可點——所以每一站印一行純 ASCII 短網址
+     （螢幕上隱藏，列印與 PDF 版面才顯示）。 */
+  const printLinks = (links, pos) => {
+    if (!pos || !pos.lat) return '';
+    links = links || {};
+    const gg = links.gpid
+      ? `https://www.google.com/maps/search/?api=1&query=${pos.lat}%2C${pos.lng}&query_place_id=${links.gpid}`
+      : `https://maps.google.com/?q=${pos.lat},${pos.lng}`;
+    const ub = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[latitude]=${pos.lat}&dropoff[longitude]=${pos.lng}`;
+    const a = u => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
+    return `<div class="print-links">🔗 Google ${a(gg)}　Uber ${a(ub)}</div>`;
+  };
+  // 飯店地址列：晚上叫車回飯店最常用到——複製地址＋Uber 直達
+  const hotelAddrRow = () => {
+    const h = hotelInfo(), L = h.links || {};
+    return L.addr ? `<div class="e-meta sub links-inline">${addrBtn(L.addr, '複製飯店地址')} ${uberBtn(posOfHotel(h), L.addr)}</div>${printLinks(L, posOfHotel(h))}` : '';
+  };
+  function linkRow(links, imgQuery, pos) {
     if (!links && !imgQuery) return '';
     links = links || {};
     const a = [];
+    const geo = !!(links.addr && pos && pos.lat);   // 有核對過的地址與座標才出叫車／導航鈕
+    if (links.addr) a.push(addrBtn(links.addr, null, links.addrX) + dropNote(links.drop));
+    if (geo) a.push(uberBtn(pos, links.addr));
     if (links.tel) {
       a.push(`<button type="button" class="telbtn" data-tel="${esc(links.tel)}" title="點一下複製電話——貼到 Google 地圖搜尋可直達店家，需要訂位也可直接撥打（日本國碼 +81，去掉開頭 0）">📞 ${esc(links.tel)} <em>複製</em></button>`);
     }
-    if (links.g) a.push(`<a href="${gmap(links.g)}" target="_blank" rel="noopener">📍 Google地圖・App直達</a>`);
+    if (links.g) a.push(`<a class="gdir" href="${esc(gmapOf(links))}" target="_blank" rel="noopener" title="${links.gpid ? '用 Google 的店家代號直接開到這一家的頁面（不靠搜尋、不會跑錯分店）' : '開 Google 地圖搜尋這個地點'}">📍 Google地圖・${links.gpid ? '店家頁直達' : 'App直達'}</a>`);
     if (links.zh) a.push(`<a href="${esc(links.zh)}" target="_blank" rel="noopener">🇹🇼 繁中介紹</a>`);
     if (links.o) a.push(`<a href="${esc(links.o)}" target="_blank" rel="noopener">🌐 官網／介紹</a>`);
     if (links.s) a.push(`<a href="${gsearch(links.s)}" target="_blank" rel="noopener">🔎 商品介紹</a>`);
     if (links.kk) a.push(`<a class="bk" href="${klook(links.kk)}" target="_blank" rel="noopener">🎫 Klook 找票・比價</a>`);
     if (imgQuery) a.push(`<a href="${gimg(imgQuery)}" target="_blank" rel="noopener">📷 實景圖片</a>`);
-    return `<div class="links" onclick="event.stopPropagation()">${a.join('')}</div>`;
+    // 從目前位置一鍵導航（也是座標，不吃搜尋）
+    if (geo) a.push(`<a href="${gnav(pos)}" target="_blank" rel="noopener" title="從你現在的位置導航到這裡（Google 地圖內可切換大眾運輸／步行／開車）">🧭 Google 導航到這</a>`);
+    return `<div class="links" onclick="event.stopPropagation()">${a.join('')}</div>${geo ? printLinks(links, pos) : ''}`;
   }
   // 行程裡的採購清單：每個品項是可點的晶片，點了在同一區塊下方展開詳情
   const piChip = it => `<button type="button" class="pi" data-pi="${esc(it.id)}" title="點一下看價格與商品資訊">☐ ${esc(it.name)}</button>`;
@@ -233,6 +288,8 @@
       localStorage.setItem('oki_pins_v1', JSON.stringify(state.pins));
       localStorage.setItem('oki_at_v1', JSON.stringify(state.at));
       localStorage.setItem('oki_stpin_v1', JSON.stringify(state.stPins));
+      localStorage.setItem('oki_exst_v1', JSON.stringify(state.exSt));
+      localStorage.setItem('oki_exan_v1', JSON.stringify(state.exAn));
       localStorage.setItem('oki_ord_v1', JSON.stringify(state.ord));
       localStorage.setItem('oki_daycl_v1', JSON.stringify(state.dayCl));
       localStorage.setItem('oki_flight_v1', JSON.stringify(state.flight));
@@ -248,6 +305,8 @@
       try { state.pins = JSON.parse(localStorage.getItem('oki_pins_v1') || '{}') || {}; } catch (e) { state.pins = {}; }
       try { state.at = JSON.parse(localStorage.getItem('oki_at_v1') || '{}') || {}; } catch (e) { state.at = {}; }
       try { state.stPins = JSON.parse(localStorage.getItem('oki_stpin_v1') || '{}') || {}; } catch (e) { state.stPins = {}; }
+      try { state.exSt = JSON.parse(localStorage.getItem('oki_exst_v1') || '{}') || {}; } catch (e) { state.exSt = {}; }
+      try { state.exAn = JSON.parse(localStorage.getItem('oki_exan_v1') || '{}') || {}; } catch (e) { state.exAn = {}; }
       try { state.ord = JSON.parse(localStorage.getItem('oki_ord_v1') || '{}') || {}; } catch (e) { state.ord = {}; }
       try { state.dayCl = JSON.parse(localStorage.getItem('oki_daycl_v1') || 'null'); } catch (e) { state.dayCl = null; }
       try { state.flight = JSON.parse(localStorage.getItem('oki_flight_v1') || '{}') || {}; } catch (e) { state.flight = {}; }
@@ -280,8 +339,11 @@
     const ht = (state.hotel && state.hotel !== 'collective') ? '&ht=' + state.hotel : '';
     const pp = state.party != null ? '&pp=' + state.party : '';
     const ap = (state.flight && state.flight.ap && state.flight.ap !== 'tpe') ? '&ap=' + state.flight.ap : '';
+    const xs = Object.keys(state.exSt).filter(k => STORES[k]).join('.');
+    const xa = Object.keys(state.exAn).filter(d => d >= 0 && d <= 4).join('.');
     return (p ? '&p=' + p : '') + (sp ? '&sp=' + sp : '') + (o ? '&o=' + encodeURIComponent(o) : '') +
-      (at ? '&at=' + at : '') + dc + (fl ? '&fl=' + fl : '') + ht + pp + ap;
+      (at ? '&at=' + at : '') + dc + (fl ? '&fl=' + fl : '') + ht + pp + ap +
+      (xs ? '&xs=' + xs : '') + (xa ? '&xa=' + xa : '');
   };
   function shareUrl() {
     const ids = [...state.sel].sort();
@@ -338,6 +400,12 @@
     state.party = (pp >= 2 && pp <= 12) ? pp : null;
     const ap = p.get('ap');
     if (ap && AIRPORTS[ap]) state.flight.ap = ap;
+    const xs = p.get('xs');
+    state.exSt = {};
+    if (xs) xs.split('.').forEach(k => { if (STORES[k]) state.exSt[k] = 1; });
+    const xa = p.get('xa');
+    state.exAn = {};
+    if (xa) xa.split('.').forEach(d => { if (d !== '' && +d >= 0 && +d <= 4) state.exAn[+d] = 1; });
     state.fromShare = true;
     return true;
   }
@@ -388,7 +456,7 @@
     const label = `單軌 ${A.st}→${B.st}（${stops}站）`;
     const mins = Math.ceil(A.walk + B.walk + ride + 8); // 進出站＋候車緩衝
     const yen = stops <= 2 ? 250 : stops <= 4 ? 290 : stops <= 6 ? 320 : stops <= 9 ? 360 : 390; // 2025/2/1 改定運賃
-    return { mins, label, fareNT: Math.round(yen * YEN2NT) };
+    return { mins, label, yen, fareNT: Math.round(yen * YEN2NT) };
   }
 
   function transCalc(from, to, charter) {
@@ -424,7 +492,7 @@
     const taxiNT = cabNT * ci.cabs; // 依人數拆分台數
     const mi = metroInfo(from.zone, to.zone);
     if (mi && mi.mins <= taxiMins + 10) {
-      return { mode: 'metro', mins: mi.mins, fare2: mi.fareNT * ci.n, km: line,
+      return { mode: 'metro', mins: mi.mins, fare2: mi.fareNT * ci.n, km: line, yen: mi.yen,
         desc: `🚝 ${mi.label} 約${mi.mins}分・約NT$${mi.fareNT}／人（${ci.n}人合計約NT$${mi.fareNT * ci.n}，此段搭單軌更順）`,
         short: `🚝${mi.mins}分 NT$${mi.fareNT}/人` };
     }
@@ -848,9 +916,9 @@
     const rows = [];
     if (day.key === 'd1') {
       rows.push({ k: 'fixed', t: fmtT(fi.obDep), text: `✈️ ${fmtT(fi.obDep)} ${apt.name}出發（${t.outbound.airline}）`, sub: `建議 ${fmtT(Math.max(0, fi.obDep - 120))} 前抵達機場辦理報到與托運；航班時間可在上方摘要卡直接修改，整份行程會自動重算` });
-      rows.push({ k: 'fixed', t: fmtT(fi.obArr), text: `🛬 ${fmtT(fi.obArr)} 抵達那霸機場`, sub: '日本時間比台灣快 1 小時｜入境領行李後，可先在機場買單軌 QR 一日券（1,000円）或 OKICA 交通卡；國內線1F「空港食堂」沖繩麵850円・ジューシー250円可先墊肚子（9:00-20:00）' });
+      rows.push({ k: 'fixed', t: fmtT(fi.obArr), text: `🛬 ${fmtT(fi.obArr)} 抵達那霸機場`, sub: '日本時間比台灣快 1 小時｜搭單軌免買票：感應式信用卡（Visa／Mastercard／JCB…一人一張）直接刷進站，同一張卡每日自動封頂 800円；國內線1F「空港食堂」沖繩麵850円・ジューシー250円可先墊肚子（9:00-20:00）' });
       rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 45)), text: `🚕 機場 → 飯店（${cabInfo().txt}）`, sub: '計程車約 15 分（每台約1,800-2,300円，行李多最省力）；或搭單軌轉步行（依住宿位置，約NT$65-80／人）' });
-      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 80)), text: `🏨 ${hv.name} 寄放行李`, sub: '15:00 後正式入住｜' + hv.area, links: { g: hv.links.g, o: hv.links.o } });
+      rows.push({ k: 'fixed', t: fmtT(ceil5(fi.obArr + 80)), text: `🏨 ${hv.name} 寄放行李`, sub: '15:00 後正式入住｜' + hv.area, links: hv.links });
     }
     if (day.key === 'd5') {
       rows.push({ k: 'fixed', t: '08:30', text: '🧳 整理行李・辦理退房', sub: '行李寄放櫃台，採買完回飯店領取' });
@@ -871,6 +939,7 @@
     const MEAL_GAP = (CONFIG.mealGap != null) ? CONFIG.mealGap : 210;
     let lastGap = MEAL_GAP;                    // 上一頓要求的間隔（輕食減半）
     const modeCnt = { walk: 0, taxi: 0, metro: 0, van: 0 };
+    let metroYen = 0;                          // 本日單軌票價合計（每人・日圓）
 
     day.seq.forEach((stop, si) => {
       const pos = posOfStop(stop, day);
@@ -902,6 +971,7 @@
         rows.push({ k: 'trans', dep, arr: dep + tr.mins, tr });
         transCost += tr.fare2; transMins += tr.mins; transKm += (tr.km || 0);
         modeCnt[tr.mode]++;
+        if (tr.mode === 'metro') metroYen += tr.yen || 0;
       }
       // 剛吃完沒多久不會再吃一頓 —— 正餐之間至少間隔 3.5 小時
       const mealItem = stop.type === 'cell' && stop.cell && isRealMeal(stop.cell.item);
@@ -934,6 +1004,7 @@
       rows.push({ k: 'trans', dep: time, arr: time + tr.mins, tr });
       transCost += tr.fare2; transMins += tr.mins; transKm += (tr.km || 0);
       modeCnt[tr.mode]++;
+      if (tr.mode === 'metro') metroYen += tr.yen || 0;
       time += tr.mins;
       rows.push({ k: 'hotel', t: time, pickup: day.key === 'd5', curfew: day.curfew, soft: day.curfewSoft });
     }
@@ -957,6 +1028,7 @@
     day.transMins = transMins;
     day.transKm = transKm;
     day.modeCnt = modeCnt;
+    day.metroYen = metroYen;
   }
 
   function generate() {
@@ -1120,9 +1192,11 @@
       const p = state.stPins[g.storeId];
       return (p && p.d >= 0 && p.d <= 4) ? p.d : null;
     };
-    const pinnedEarly = storeGroups.filter(g => g !== cvsGroup && stPinOf(g) != null && stPinOf(g) < 4);
-    const smGroups = storeGroups.filter(g => g !== cvsGroup && !pinnedEarly.includes(g) && ZONES[g.store.zone].cluster === 'kokusai');
-    const otherGroups = storeGroups.filter(g => g !== cvsGroup && !pinnedEarly.includes(g) && !smGroups.includes(g));
+    // 使用者按了「✕ 移除」的採購站：完全不參與排程，品項退回「排不進的門市」面板隨時可改排回來
+    const exGrp = g => !!state.exSt[g.storeId];
+    const pinnedEarly = storeGroups.filter(g => g !== cvsGroup && !exGrp(g) && stPinOf(g) != null && stPinOf(g) < 4);
+    const smGroups = storeGroups.filter(g => g !== cvsGroup && !exGrp(g) && !pinnedEarly.includes(g) && ZONES[g.store.zone].cluster === 'kokusai');
+    const otherGroups = storeGroups.filter(g => g !== cvsGroup && !exGrp(g) && !pinnedEarly.includes(g) && !smGroups.includes(g));
     const pinnedD5Other = otherGroups.filter(g => stPinOf(g) === 4);
     const autoOther = otherGroups.filter(g => stPinOf(g) == null);
     // 國際通門市要排 Day 1 而不是 Day 5 上午：中午後才開門、返程日（週日）公休（牧志市場逢第4週日休）、
@@ -1140,6 +1214,7 @@
     days.forEach((d, di) => {
       const a = ANCHORS[d.cluster];
       if (!a) return;
+      if (state.exAn[di]) return;   // 使用者移除過這天的填充錨點就不再插
       if (storeLoad(di) >= 2) return;
       if (d.full) {
         if (!d.slots.afternoon && !d.slots.evening) d.slots.afternoon = { anchor: a };
@@ -1356,6 +1431,7 @@
       const di = placedDayOf(g);
       let hint;
       if (g.storeId === 'cvs') hint = '隨時順手買｜' + g.store.name;
+      else if (state.exSt[g.storeId]) hint = `🚫 你手動移除了這一站——想恢復就在下面選個日子改排回來｜${g.store.name}`;
       else if (g.closedDay) hint = `⚠️ 這趟排不到（該店在對應行程日公休）｜${g.store.name}`;
       else if (di >= 0) hint = `Day ${di + 1} ${g.pinnedStore ? '手動指定採買' : '順路採買'}｜${g.store.name}`;
       else if (g.trimmedOut && g.pinnedStore) hint = `⚠️ 你指定的 Day ${((state.stPins[g.storeId] || {}).d || 0) + 1} 塞不進這間店的營業時間，請改指定別天｜${g.store.name}`;
@@ -1416,7 +1492,8 @@
       <div class="meta sub">📌 ${esc(it.area || it.buy || '')}</div>
       ${priceLine}${waitLine}${it.area ? buyLine : ''}${extraLine}${branchLine}
       <p class="desc">${esc(it.desc)}</p>
-      ${linkRow(it.links, imgQ(it))}
+      ${orderHtml(it)}
+      ${linkRow(it.links, imgQ(it), posOfItem(it))}
     </div>`;
   }
 
@@ -1679,9 +1756,10 @@
   function rowHtml(r, day) {
     // day._idx 由 renderResult 指派
     if (r.k === 'fixed') {
-      const lk = r.links ? ` <a href="${gmap(r.links.g)}" target="_blank" rel="noopener">📍地圖</a>` +
+      const lk = r.links ? ` <a href="${esc(gmapOf(r.links))}" target="_blank" rel="noopener">📍地圖</a>` +
         (r.links.o ? ` <a href="${esc(r.links.o)}" target="_blank" rel="noopener">🌐官網</a>` : '') : '';
-      return entryHtml(r.t, '固定', `<div class="e-name">${r.text}</div>${r.sub ? `<div class="e-meta sub">${esc(r.sub)}${lk}</div>` : ''}`, 'fixed');
+      const ad = r.links && r.links.addr ? hotelAddrRow() : '';
+      return entryHtml(r.t, '固定', `<div class="e-name">${r.text}</div>${r.sub ? `<div class="e-meta sub">${esc(r.sub)}${lk}</div>` : ''}${ad}`, 'fixed');
     }
     if (r.k === 'trans') {
       return `<div class="entry trans"><div class="t"><span class="clock sm">${fmtT(r.dep)}</span><span class="slotlab">出發</span></div>
@@ -1699,7 +1777,8 @@
     if (r.k === 'hotel') {
       const cf = r.curfew;
       const cfNote = (!r.pickup && cf) ? `<div class="e-meta sub">${r.t <= cf ? `✅ ${fmtT(cf)} 前到家（${cf === (CONFIG.curfew || {}).far ? '遠程日放寬標準' : '一般日標準'}）` : `⚠️ 比預定的 ${fmtT(cf)} 晚了 ${durTxt(r.t - cf)}${r.soft ? '——為了保留重點行程與晚餐，沒有再刪東西' : ''}`}</div>` : '';
-      return entryHtml(fmtT(r.t), '返回', `<div class="e-name">${r.pickup ? '🏨 回飯店領行李，整理後前往機場' : '🏨 回到飯店，今日行程結束'}</div>${cfNote}`, 'fixed hotelend');
+      // 晚上叫車回飯店是最常用到地址的時候：這一列直接放飯店地址複製鈕與 Uber 直達
+      return entryHtml(fmtT(r.t), '返回', `<div class="e-name">${r.pickup ? '🏨 回飯店領行李，整理後前往機場' : '🏨 回到飯店，今日行程結束'}</div>${cfNote}${hotelAddrRow()}`, 'fixed hotelend');
     }
     if (r.k === 'store') {
       const g = r.g;
@@ -1713,7 +1792,7 @@
         <div class="e-name">🛍️ ${esc(g.store.name)} ${g.pinnedStore ? '<span class="badge pin">📌 手動指定</span>' : ''}<span class="stay">⏳ 停留約${durTxt(r.stay)}</span></div>${earlyWarn}
         <div class="store-items">${g.items.map(piChip).join('')}</div><div class="pi-panel no-print" hidden></div>
         ${g.store.note ? `<div class="store-note">💡 ${esc(g.store.note)}</div>` : ''}${lateWarn}
-        ${linkRow(g.store.links, g.store.links && g.store.links.g)}
+        ${linkRow(g.store.links, g.store.links && g.store.links.g, posOfStore(g.store))}
         ${storeBar(g, day, r.si)}`, 'storestop');
     }
     if (r.k === 'd5shop') {
@@ -1721,17 +1800,17 @@
         return entryHtml(fmtT(r.t), SLOT_LABELS.d5shop, `
           <div class="e-name">🛍️ 國際通最後採購：唐吉訶德＋御菓子御殿／わした <span class="stay">⏳ 約${durTxt(r.stay)}</span></div>
           <div class="e-desc">藥妝、伴手禮最後掃貨並辦理免稅（同店單日合計滿 5,000円 出示護照即免 8% 消費稅；消耗品密封袋出境前勿拆），採買完回飯店打包行李</div>
-          ${linkRow({ g: 'ドン・キホーテ 国際通り店' }, 'ドン・キホーテ 国際通り店')}`, 'storestop');
+          ${linkRow(STORES.donki.links, 'ドン・キホーテ 国際通り店', posOfStore(STORES.donki))}`, 'storestop');
       }
       const inner = r.stores.map(g => `
         <div class="store-b"><b>🛍️ ${esc(g.store.name)}</b>
           <div class="store-items">${g.items.map(piChip).join('')}</div><div class="pi-panel no-print" hidden></div>
           ${g.store.note ? `<div class="store-note">💡 ${esc(g.store.note)}</div>` : ''}
-          ${linkRow(g.store.links, g.store.links && g.store.links.g)}
+          ${linkRow(g.store.links, g.store.links && g.store.links.g, posOfStore(g.store))}
           <div class="e-edit no-print"><span class="ed-lab">這間店</span><select class="ed-sel" data-stday="${g.storeId}">
             <option value="4" selected>留在 Day 5 最終採購</option>
             ${[0, 1, 2, 3].map(i => `<option value="${i}">提前到 Day ${i + 1} 買</option>`).join('')}
-          </select></div></div>`).join('');
+          </select><button class="ed del" data-stdrop="${g.storeId}" title="這間不去了——品項退回頂部的「排不進的門市」面板，隨時可改排回來">✕ 移除</button></div></div>`).join('');
       return entryHtml(fmtT(r.t), SLOT_LABELS.d5shop, `
         <div class="e-name">🛒 國際通最終採購（${r.stores.reduce((s, g) => s + g.items.length, 0)} 項）<span class="stay">⏳ 合計約${durTxt(r.stay)}</span></div>
         ${inner}
@@ -1745,8 +1824,9 @@
       const a = cell.anchor;
       return entryHtml(fmtT(r.t), label, `
         <div class="e-name">${a.shopping ? '🛍️' : '🚶'} ${esc(a.name)} <span class="badge free">${a.shopping ? '採購時間' : '免費散步'}</span> <span class="stay">⏳ 約${durTxt(r.stay)}</span></div>
-        <div class="e-desc">${esc(a.desc)}</div>${linkRow(a.links, a.links && a.links.g)}
-        <div class="e-edit no-print"><span class="ed-lab">調整</span>${moveBtns(day, r.si)}</div>`);
+        <div class="e-desc">${esc(a.desc)}</div>${linkRow(a.links, a.links && a.links.g, ANCHOR_META[day.cluster] ? { lat: ANCHOR_META[day.cluster].lat, lng: ANCHOR_META[day.cluster].lng, name: a.links.g } : null)}
+        <div class="e-edit no-print"><span class="ed-lab">調整</span>${moveBtns(day, r.si)}
+          <button class="ed del" data-androp="${day._idx}" title="移除這段自動填充的散步／採購時間（多出來的時間變自由時間；想恢復按上方「還原自動安排」）">✕ 移除</button></div>`);
     }
     const it = cell.item;
     const ci = catInfo(it);
@@ -1761,8 +1841,8 @@
       ${r.supperWait ? `<div class="e-meta sub">🍽 晚餐吃完先消化——宵夜自動延後 ${durTxt(r.supperWait)} 開始（中間是自由時間，可先回飯店放戰利品）</div>` : ''}
       ${siblings(it).length ? `<div class="e-meta sub">🏪 走不到也沒關係：${siblings(it).map(s => esc(s.area)).join('、')}也有分店</div>` : ''}
       ${it.close != null && r.end > it.close ? `<div class="e-meta warnline">⚠️ 這家約 ${fmtT(it.close)} 打烊，此時段可能來不及——建議提前或改選同品牌其他分店</div>` : ''}
-      ${atHtml(r)}${batchHtml(r)}
-      <div class="e-desc">${esc(it.desc)}</div>${planHtml(it, r.t)}${linkRow(it.links, imgQ(it))}
+      ${atHtml(r)}${batchHtml(r)}${orderHtml(it)}
+      <div class="e-desc">${esc(it.desc)}</div>${planHtml(it, r.t)}${linkRow(it.links, imgQ(it), posOfItem(it))}
       ${editBar(it, day, r.slotKey, cell, r.si)}`);
   }
 
@@ -1781,6 +1861,16 @@
     return `<div class="batchbox ok">🎫 <b>已預約 ${fmtT(a.at)}${what}</b>——行程以它為準往前反推：
       ${a.lead ? `需在 <b>${fmtT(a.need)}</b> 前到站（留 ${durTxt(a.lead)} 報到換票）` : `需在 <b>${fmtT(a.need)}</b> 前抵達`}，
       上面的時間已經照這個算好了。${note}</div>`;
+  }
+
+  /* 推薦點法：到店直接照這個點，不用再研究菜單（日文菜名可直接指給店員看）。
+     以「｜」分段，每段開頭「標籤：」自動粗體（必點／招牌／多人建議／注意…） */
+  function orderHtml(it) {
+    if (!it.order) return '';
+    return `<div class="orderbox">🍽️ <b>推薦點法</b>｜${ordFmt(it.order)}</div>`;
+  }
+  function ordFmt(s) {
+    return esc(s).replace(/(^|｜)([^｜：]{1,20})：/g, '$1<b>$2：</b>');
   }
 
   /* 出爐場次提醒：講清楚「這個時間到到底買不買得到」，以及怎麼調整才不用乾等 */
@@ -1858,6 +1948,7 @@
       <button class="ed" data-stmv="${g.storeId}|${di - 1}"${di <= 0 ? ' disabled' : ''} title="這站採購移到前一天">◀ ${di > 0 ? 'Day' + di : '前一天'}</button>
       <button class="ed" data-stmv="${g.storeId}|${di + 1}"${di >= 4 ? ' disabled' : ''} title="這站採購移到後一天">${di < 4 ? 'Day' + (di + 2) : '後一天'} ▶</button>
       ${pinned ? `<button class="ed" data-stauto="${g.storeId}" title="取消手動指定，交回系統自動安排">↩ 自動</button>` : ''}
+      <button class="ed del" data-stdrop="${g.storeId}" title="這站不去了——想買的品項會列回頂部的「排不進的門市」面板，隨時可改排回來">✕ 移除</button>
     </div>`;
   }
 
@@ -2058,7 +2149,7 @@
                 title="${f.fits ? '這天還有空檔，排得下' : '這天已經排滿，加進去會把當天某一項換到備選'}">✚ Day${f.i + 1}${
                   k === 0 ? (f.fits ? '（順路建議）' : '（建議・會換掉一項）') : (f.fits ? '' : '⚠️')}</button>`).join('')
             : '<span class="bk-none">這幾天店家都公休，排不進去</span>';
-          return `<div class="bk-item"><div class="bk-main">${ci.icon} ${esc(it.name)}｜💰 ${esc(it.price || '')} ${linkRow(it.links, imgQ(it))}</div>
+          return `<div class="bk-item"><div class="bk-main">${ci.icon} ${esc(it.name)}｜💰 ${esc(it.price || '')} ${linkRow(it.links, imgQ(it), posOfItem(it))}</div>
             <div class="bk-act no-print">${btns}</div></div>`;
         }).join('')}</div>` : '';
       const dayTips = {
@@ -2073,7 +2164,9 @@
       if (mc.metro) modeBits.push(`單軌${mc.metro}段`);
       if (mc.walk) modeBits.push(`步行${mc.walk}段`);
       const heavy = (d.transMins || 0) >= 150;
-      const transTip = d.seq && d.seq.length ? `<div class="tip${heavy ? ' holiday' : ''}">🧭 本日交通：${modeBits.join('＋') || '皆在步行圈'}｜<b>總移動約${durTxt(d.transMins || 0)}、${(d.transKm || 0).toFixed(1)}公里</b>｜交通費預估 ${money(d.transCost || 0)}（${PARTY()}人合計）${heavy && d.hog ? `——<b>其中「${esc(d.hog.name)}」最花時間</b>：把它移到別天（用下方項目的「調整」列）可省下約 ${durTxt(d.hog.save)} 車程、少繞 ${d.hog.km.toFixed(1)} 公里` : heavy ? '——移動偏多，可考慮把最遠的一站換成同區其他選擇' : ''}。${d.curfew ? `本日目標 ${fmtT(d.curfew)} 前回到飯店${d.farDay ? '（有遠程景點，已放寬）' : ''}。` : ''}時間為保守估算（含候車與緩衝）。</div>` : '';
+      const mYen = d.metroYen || 0;
+      const metroTip = mc.metro ? `｜🚝 單軌票價每人約 ${mYen.toLocaleString('en-US')} 円${mYen > 800 ? '——刷感應式信用卡當日自動封頂 800 円' : '（刷感應式信用卡即可，免買票）'}` : '';
+      const transTip = d.seq && d.seq.length ? `<div class="tip${heavy ? ' holiday' : ''}">🧭 本日交通：${modeBits.join('＋') || '皆在步行圈'}｜<b>總移動約${durTxt(d.transMins || 0)}、${(d.transKm || 0).toFixed(1)}公里</b>｜交通費預估 ${money(d.transCost || 0)}（${PARTY()}人合計）${metroTip}${heavy && d.hog ? `——<b>其中「${esc(d.hog.name)}」最花時間</b>：把它移到別天（用下方項目的「調整」列）可省下約 ${durTxt(d.hog.save)} 車程、少繞 ${d.hog.km.toFixed(1)} 公里` : heavy ? '——移動偏多，可考慮把最遠的一站換成同區其他選擇' : ''}。${d.curfew ? `本日目標 ${fmtT(d.curfew)} 前回到飯店${d.farDay ? '（有遠程景點，已放寬）' : ''}。` : ''}時間為保守估算（含候車與緩衝）。</div>` : '';
       const charterTip = d.charter ? (() => {
         const hr = (d.tl || []).filter(r => r.k === 'hotel').pop();
         const cst = CONFIG.charter || {};
@@ -2136,7 +2229,10 @@
             : '';
           // 門市備註（省錢撇步、退稅方式、避雷品項…）不該只在「有排進行程」時才看得到
           const note = grp.store && grp.store.note ? `<div class="store-note">💡 ${esc(grp.store.note)}</div>` : '';
-          return `<div class="shop-group"${grp.storeId ? ` id="sg-${grp.storeId}"` : ''}><h3>📍 ${esc(g)}</h3>${note}${dayPick}${grp.items.map(it => {
+          // 門市本身的地址／叫車／地圖直達（商品列只放商品連結，門市連結集中放這裡）
+          const stLinks = (grp.store && grp.storeId !== 'cvs' && grp.store.links && grp.store.links.addr)
+            ? linkRow(grp.store.links, null, posOfStore(grp.store)) : '';
+          return `<div class="shop-group"${grp.storeId ? ` id="sg-${grp.storeId}"` : ''}><h3>📍 ${esc(g)}</h3>${note}${stLinks}${dayPick}${grp.items.map(it => {
             const ci = catInfo(it);
             const safeTxt = it.safe === 'warn' ? '<span class="badge warn">⚠️ 成分含肉禁帶</span>' :
               it.safe === 'ok-check' ? '<span class="badge note">須託運</span>' : '';
@@ -2148,6 +2244,14 @@
     }
 
     const est = plan.cost;
+    /* 單軌票券建議：逐日把單軌票價加總（感應式信用卡每日封頂 800 円），直接回答「要不要買一日券／儲值多少」 */
+    const mRides = plan.days.reduce((s, d) => s + ((d.modeCnt || {}).metro || 0), 0);
+    const mRaw = plan.days.reduce((s, d) => s + (d.metroYen || 0), 0);
+    const mCap = plan.days.reduce((s, d) => s + Math.min(800, d.metroYen || 0), 0);
+    const metroAdvice = mRides
+      ? `🚝 單軌票券建議：這份行程共搭 ${mRides} 段，每人約 ${mCap.toLocaleString('en-US')} 円${mCap < mRaw ? `（原價 ${mRaw.toLocaleString('en-US')} 円，已套用每日封頂）` : ''}——直接刷感應式信用卡（Visa／Mastercard／JCB…，一人一張）進出站，同一張卡每日自動封頂 800 円，不必買一日券或 OKICA`
+      : '🚝 單軌票券建議：這份行程沒有排到單軌（以步行／計程車／包車為主），不必買一日券；臨時想搭直接刷感應式信用卡即可（每日封頂 800 円）';
+    const hvPos = posOfHotel(hv);
     $('#result-inner').innerHTML = `
       <header class="r-head" id="rtop">
         <button class="back no-print" id="backBtn">← 回到勾選頁調整</button>
@@ -2161,12 +2265,14 @@
           <div class="sc"><div class="sc-t">🏨 住宿（可選擇）</div>
             <div><select class="fl-sel" data-ht="1">${Object.entries(HOTELS).map(([k, x]) => `<option value="${k}"${k === (state.hotel || 'collective') ? ' selected' : ''}>${x.short}</option>`).join('')}</select></div>
             <div>${esc(hv.area)}</div>
-            <div><a href="${gmap(hv.links.g)}" target="_blank" rel="noopener">📍 Google地圖</a>　${hv.links.o ? `<a href="${esc(hv.links.o)}" target="_blank" rel="noopener">🌐 官網</a>` : ''}</div></div>
+            <div><a href="${esc(gmapOf(hv.links))}" target="_blank" rel="noopener">📍 Google地圖</a>　${hv.links.o ? `<a href="${esc(hv.links.o)}" target="_blank" rel="noopener">🌐 官網</a>` : ''}</div>
+            ${hv.links.addr ? `<div class="links-inline">${addrBtn(hv.links.addr, '複製飯店地址')} ${uberBtn(hvPos, hv.links.addr)}</div>${printLinks(hv.links, hvPos)}` : ''}</div>
           <div class="sc"><div class="sc-t">✈️ 回程（可修改）</div><div>${t.inbound.date}</div>
             <div>出發那霸 <input type="time" class="fl-in" data-fl="ibDep" value="${fmtT(Math.min(fi.ibDep, 1435))}"></div>
             <div>抵達${esc(apR.short)} <input type="time" class="fl-in" data-fl="ibArr" value="${fmtT(Math.min(fi.ibArr, 1435))}">（台灣時間）</div></div>
           <div class="sc cost"><div class="sc-t">💰 預估花費（每人）</div><div class="big">${money(est)}</div><div>餐飲＋門票，不含機酒/交通/購物｜👥 <input type="number" class="fl-in num" data-pp="1" min="2" max="12" value="${PARTY()}"> 位大人</div>
             <div class="sub">🚕 交通預估 ${money(plan.transTotal)}（${PARTY()}人合計，含包車日包車費）</div>
+            <div class="sub">${metroAdvice}</div>
             ${plan.shopCost ? `<div class="sub">🛍️ 購物清單全買約 ${money(plan.shopCost)}</div>` : ''}</div>
         </div>
         <details class="ov-wrap" data-ui="ov"${uiOpen.ov ? ' open' : ''}><summary><b>✅ 勾選總覽</b><i class="sum-hint">${plan.sel.filter(i => i.kind !== 'shop').length} 個景點與餐飲・點開檢視哪些有排入</i></summary><div class="ov-body">${overview}</div></details>
@@ -2178,9 +2284,12 @@
           <button id="copyLink">🔗 複製行程連結分享</button>
           <button id="sheetBtn" class="gsbtn">📊 Google 試算表</button>
           <button id="printBtn">🖨️ 列印／存 PDF</button>
-          ${(Object.keys(state.pins).length || Object.keys(state.stPins).length || Object.keys(state.ord).length || state.dayCl) ? `<button id="resetPins" class="rst">↩️ 還原自動安排（${[
+          <button id="pdfBtn" title="iPhone 請用這個：切成 PDF 版面後，Safari 分享 → 選項 → PDF → 儲存到檔案，連結才點得動">📄 PDF 版面（iPhone 分享用）</button>
+          <a class="r-abtn" href="${esc(CONFIG.baseUrl + 'savelist.html?s=' + [...state.sel].sort().join('.') + (state.hotel && state.hotel !== 'collective' ? '&ht=' + state.hotel : ''))}" target="_blank" rel="noopener">📍 存進 Google 地圖</a>
+          ${(Object.keys(state.pins).length || Object.keys(state.stPins).length || Object.keys(state.ord).length || state.dayCl || Object.keys(state.exSt).length || Object.keys(state.exAn).length) ? `<button id="resetPins" class="rst">↩️ 還原自動安排（${[
             (Object.keys(state.pins).length + Object.keys(state.stPins).length) ? '已調整 ' + (Object.keys(state.pins).length + Object.keys(state.stPins).length) + ' 項' : '',
             Object.keys(state.ord).length ? '已改 ' + Object.keys(state.ord).length + ' 天順序' : '',
+            (Object.keys(state.exSt).length + Object.keys(state.exAn).length) ? '已移除 ' + (Object.keys(state.exSt).length + Object.keys(state.exAn).length) + ' 站' : '',
             state.dayCl ? '已換過天' : ''].filter(Boolean).join('、')}）</button>` : ''}
         </div>
       </header>
@@ -2191,8 +2300,10 @@
       ${dayHtml}
       ${shopHtml}
       <footer class="r-foot">
-        <div class="tip">🗺️ <b>找店最快的方式：</b>按 <b>「📍 Google地圖・App直達」</b>——手機會直接開 Google 地圖 App 定位到那一家（桌機開網頁版），不用自己搜尋、不會跑錯分店。地圖開在新分頁，你現在看的行程表不會被蓋掉。</div>
-        <div class="tip">📞 <b>電話按鈕：</b>點一下即複製號碼——貼進 Google 地圖搜尋可直達店家頁；需要訂位也可直接撥打（日本國碼 +81，去掉號碼開頭的 0）。</div>
+        <div class="tip">🗺️ <b>找店最快的方式：</b>按 <b>「📍 Google地圖・店家頁直達」</b>——用 Google 的店家代號直接開到「那一家」的頁面（手機開 App、桌機開網頁），不靠搜尋、不會跑錯分店；<b>「🧭 Google 導航到這」</b>則從你現在的位置直接規劃路線。地圖都開在新分頁，行程表不會被蓋掉。</div>
+        <div class="tip">🚕 <b>叫車：</b>黑色 <b>「🚗 Uber 直接設目的地」</b>點了就開 Uber 並把目的地設好（帶座標、不用打字；那霸一帶可叫 Uber Taxi）。黃色 <b>「🚕 地址」</b>鈕複製 Google 登錄的日文地址——貼進 GO／DiDi 的目的地，或直接把畫面拿給司機看；${PARTY() > 4 ? `${PARTY()} 人要分 ${cabInfo().cabs} 台車，把地址傳到群組讓每台車都有。` : ''}大型景點另標「🚖 下車點」（例如首里城到首里杜館、齋場御嶽只能到物產館停車場），照著說最快入場。每天「回飯店」那一列也放了飯店地址。</div>
+        <div class="tip">📞 <b>電話按鈕：</b>點一下即複製號碼——需要訂位可直接撥打（日本國碼 +81，去掉號碼開頭的 0），也可以報給包車司機輸入車用導航。</div>
+        <div class="tip">📄 <b>存成 PDF 帶著走：</b>電腦與 Android 用「🖨️ 列印／存 PDF」即可保留連結；iPhone 的列印預覽會把超連結拿掉，請改按「📄 PDF 版面」再用 Safari 分享 → 選項 → PDF。兩種方式每一站都會多印一行短網址，PDF 裡點得動。</div>
         <div class="tip">🎫 <b>預約提醒：</b>10 人座包車（中文司機）請提前 2-3 個月預訂；賞鯨船、美麗海與 DMM 水族館門票可先在 Klook／KKday 買好（常有優惠）；琉球之牛、ちぬまん三線表演座位、阿古豬隱家等熱門餐廳建議出發前 2 週完成訂位（可請包車業者或飯店禮賓代訂）。冬季賞鯨出航與否由船公司當日清晨判定，請保留改期彈性。</div>
         <div class="tip">💡 ${esc(CONFIG.rateNote)}</div>
         <div class="tip buildtip">🔄 版本 ${esc(CONFIG.build || '-')}｜手機若看不到新功能（例如每個項目下方的「調整」列），代表載到快取的舊版：下拉重新整理，或關掉分頁重開即可。</div>
@@ -2212,6 +2323,20 @@
       closed.forEach(d => { d.open = true; });
       window.print();
       closed.forEach(d => { d.open = false; });
+    });
+    /* PDF 版面：iPhone Safari「分享 → 選項 → PDF」走的是螢幕版面（不吃 @media print），
+       所以用 body.pdfmode 把列印規則套到螢幕上——藏掉操作鈕、展開摺疊區、顯示每站短網址 */
+    $('#pdfBtn').addEventListener('click', () => {
+      document.body.classList.add('pdfmode');
+      $$('#result-inner details:not([open])').forEach(d => { d.open = true; });
+      let x = $('#pdfExit');
+      if (!x) {
+        x = document.createElement('button'); x.id = 'pdfExit'; x.textContent = '✕ 離開 PDF 版面';
+        x.addEventListener('click', () => { document.body.classList.remove('pdfmode'); x.remove(); });
+        document.body.appendChild(x);
+      }
+      window.scrollTo(0, 0);
+      toast('PDF 版面已開：Safari 按「分享」→ 網頁標題下的「選項」→ 選 PDF → 儲存到檔案。每一站都印有短網址，PDF 裡點得動');
     });
     $('#sheetBtn').addEventListener('click', () => { $('#gsMask').style.display = ''; });
     bindSheetModal(plan);
@@ -2465,7 +2590,7 @@
     const apP = airportInfo();
     L.push(`✈️ 去程 ${t.outbound.date} ${fmtT(fi.obDep)} ${apP.name}出發 → ${fmtT(fi.obArr)} 抵達那霸機場（日本時間）`);
     L.push(`✈️ 回程 ${t.inbound.date} ${fmtT(fi.ibDep)} 那霸機場出發 → ${fmtT(fi.ibArr)} 抵達${apP.name}（台灣時間）`);
-    L.push(`🏨 ${hotelInfo().name}｜👥 ${PARTY()} 位大人`);
+    L.push(`🏨 ${hotelInfo().name}｜👥 ${PARTY()} 位大人${(hotelInfo().links || {}).addr ? `｜🚕 ${hotelInfo().links.addr}` : ''}`);
     plan.days.forEach((d, i) => {
       L.push('────────────');
       L.push(`📅 Day ${i + 1} ${d.date}｜${d.theme}`);
@@ -2481,7 +2606,10 @@
         } else if (r.k === 'item') {
           const cell = r.cell;
           if (cell.anchor) L.push(`　${fmtT(r.t)} ${cell.anchor.name}${cell.anchor.shopping ? '' : '（免費）'}`);
-          else L.push(`　${fmtT(r.t)} ${cell.item.name}${cell.suggest ? '（推薦補位）' : ''}｜停留約${r.stay}分`);
+          else {
+            L.push(`　${fmtT(r.t)} ${cell.item.name}${cell.suggest ? '（推薦補位）' : ''}｜停留約${r.stay}分`);
+            if (cell.item.order) L.push(`　　🍽 ${cell.item.order}`);
+          }
         }
       });
       d.backup.forEach(it => L.push(`　⏸ 備選：${it.name}`));
@@ -2588,7 +2716,7 @@
       window.scrollTo(0, Math.max(0, t.getBoundingClientRect().top + window.scrollY - off));
     }, true);
     $('#result-inner').addEventListener('click', e => {
-      if (e.target.closest('#resetPins')) { state.pins = {}; state.stPins = {}; state.ord = {}; state.at = {}; state.dayCl = null; reflow('已還原成系統自動安排'); return; }
+      if (e.target.closest('#resetPins')) { state.pins = {}; state.stPins = {}; state.ord = {}; state.at = {}; state.dayCl = null; state.exSt = {}; state.exAn = {}; reflow('已還原成系統自動安排'); return; }
       const da = e.target.closest('[data-dayauto]');
       if (da) {
         delete state.ord[+da.dataset.dayauto];
@@ -2623,6 +2751,23 @@
       if (sa) {
         delete state.stPins[sa.dataset.stauto];
         reflow('這站採購已改回系統自動安排');
+        return;
+      }
+      const sdp = e.target.closest('[data-stdrop]');
+      if (sdp) {
+        const sid = sdp.dataset.stdrop;
+        if (!STORES[sid]) return;
+        state.exSt[sid] = 1;
+        delete state.stPins[sid];
+        reflow(`已移除採購站「${STORES[sid].name}」——想買的品項列在頂部「排不進的門市」面板，隨時可以改排回來`);
+        return;
+      }
+      const adp = e.target.closest('[data-androp]');
+      if (adp) {
+        const di = +adp.dataset.androp;
+        if (!(di >= 0 && di <= 4)) return;
+        state.exAn[di] = 1;
+        reflow(`已移除 Day ${di + 1} 的自動填充時段，多出來的時間變成自由時間（想恢復請按「還原自動安排」）`);
         return;
       }
       const ad = e.target.closest('[data-add]');
@@ -2693,6 +2838,8 @@
       if (sd) {
         const sid = sd.dataset.stday;
         if (!STORES[sid]) return;
+        const wasEx = !!state.exSt[sid];
+        delete state.exSt[sid];   // 重新指定＝把手動移除的店排回來
         if (sd.value === '') {
           delete state.stPins[sid];
           reflow(`「${STORES[sid].name}」已改回系統自動安排`);
@@ -2701,7 +2848,7 @@
         const di = +sd.value;
         if (!(di >= 0 && di <= 4)) return;
         state.stPins[sid] = { d: di };
-        reflow(`已把「${STORES[sid].name}」的採購指定到 Day ${di + 1}，行程重新排好了`);
+        reflow(`已把「${STORES[sid].name}」的採購${wasEx ? '排回' : '指定到'} Day ${di + 1}，行程重新排好了`);
         return;
       }
       const sel = e.target.closest('[data-slot]');
@@ -2754,6 +2901,23 @@
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(tel).then(done).catch(() => fallbackCopy(tel, done));
       } else fallbackCopy(tel, done);
+    }, true);
+    /* 日文地址一鍵複製（叫車用）：同樣走捕獲階段，勾選頁、結果頁、回飯店列、Hero 卡片都吃這一個 */
+    document.addEventListener('click', e => {
+      const b = e.target.closest('[data-addr]');
+      if (!b) return;
+      e.preventDefault(); e.stopPropagation();
+      const addr = b.dataset.addr;
+      const done = () => {
+        const old = b.innerHTML;
+        b.innerHTML = '✅ 地址已複製';
+        b.classList.add('done');
+        setTimeout(() => { b.innerHTML = old; b.classList.remove('done'); }, 2200);
+        toast(`已複製「${addr}」——貼到 GO／DiDi／Uber 的目的地，或直接把畫面拿給司機看；懶得貼就按黑色「Uber 直接設目的地」`);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(addr).then(done).catch(() => fallbackCopy(addr, done));
+      } else fallbackCopy(addr, done);
     }, true);
     /* Hero 卡片（航班／機場／住宿／人數）：容器委派，重繪後事件不失效 */
     const heroEl = document.getElementById('heroCards');

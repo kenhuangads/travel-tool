@@ -401,9 +401,21 @@ small { color: var(--ink-3); font-weight: 400; }
   #result { display: block !important; }
   .day, .shoplist, .sc, .ov-wrap { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
   .entry.trans, .entry.free, .entry.storestop { break-inside: avoid; }
-  .links a { color: #333; }
+  .links a { color: #1a4fa3; text-decoration: underline; }
   .hero { display: none; }
+  .print-links { display: block; }
 }
+/* 列印／PDF 用短網址列：螢幕隱藏，列印與 PDF 版面才出現（純 ASCII，PDF 閱讀器會自動變成可點） */
+.print-links { display: none; font: 9.5px/1.55 ui-monospace, Menlo, Consolas, monospace; color: #1a4fa3; word-break: break-all; margin-top: 3px; }
+.print-links a { color: #1a4fa3; text-decoration: underline; }
+/* PDF 版面（iPhone：Safari 分享→選項→PDF 走螢幕版面，不吃 @media print，所以把同一套規則掛在 body.pdfmode） */
+body.pdfmode .no-print, body.pdfmode #bar, body.pdfmode .controls, body.pdfmode #toast, body.pdfmode .e-edit,
+body.pdfmode .pi-panel, body.pdfmode .day-swap, body.pdfmode #updbar, body.pdfmode a.uber, body.pdfmode .hero { display: none !important; }
+body.pdfmode .print-links { display: block; font-size: 10.5px; }
+body.pdfmode .links a { text-decoration: underline; }
+body.pdfmode .day, body.pdfmode .shoplist, body.pdfmode .sc, body.pdfmode .ov-wrap { box-shadow: none; border: 1px solid #ddd; }
+#pdfExit { position: fixed; right: 12px; bottom: 14px; z-index: 70; background: #1d2733; color: #fff; border: none; border-radius: 999px; padding: 9px 14px; font-size: 13px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+@media print { #pdfExit { display: none; } }
 
 /* ── v5：行程手動調整列 ───────────── */
 .e-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--line); }
@@ -463,6 +475,44 @@ small { color: var(--ink-3); font-weight: 400; }
 .links a.nv { background: #eef4ff; border: 1px solid #c3d6f5; border-radius: 999px; padding: 1px 10px; font-weight: 700; color: #23509b; }
 .links a.nv:hover { background: #dde9ff; border-color: #8fb3ea; text-decoration: none; }
 @media print { .telbtn { border: none; padding: 0; } .telbtn em { display: none; } }
+/* Google 店家頁直達（place id）：藍色膠囊，和一般文字連結區隔 */
+.links a.gdir { background: #eef4ff; border: 1px solid #c3d6f5; border-radius: 999px; padding: 1px 10px; font-weight: 700; color: #23509b; }
+.links a.gdir:hover { background: #dde9ff; border-color: #8fb3ea; text-decoration: none; }
+/* ── 日文地址一鍵複製（叫車用，計程車黃） ── */
+.addrbtn {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 5px; max-width: 100%;
+  font-size: 12.5px; font-weight: 700; color: #6b4d00; text-align: left;
+  background: #fff6d6; border: 1px solid #efd98a; border-radius: 14px;
+  padding: 1px 10px; line-height: 1.55; letter-spacing: .2px; white-space: normal;
+}
+.addrbtn em { font-style: normal; font-weight: 400; font-size: 11px; color: #9a7a1c; white-space: nowrap; }
+.addrbtn i { font-style: normal; font-weight: 500; font-size: 11.5px; color: #8a6d12; }
+.addrbtn:hover { background: #ffedb0; border-color: #e2c25a; }
+.addrbtn.done { background: #d99a00; border-color: #d99a00; color: #fff; }
+.addrbtn.done em { color: #fff; }
+/* Uber 深連結（黑底＝Uber 品牌色），飯店列與首頁卡片也會用到，所以不限定在 .links 裡 */
+a.uber { display: inline-flex; align-items: center; gap: 4px; background: #111; color: #fff !important; border: 1px solid #111; border-radius: 999px; padding: 1px 10px; font-size: 12.5px; font-weight: 700; text-decoration: none !important; white-space: nowrap; }
+a.uber:hover { background: #333; border-color: #333; }
+.links-inline { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 5px; }
+.ic .hero-addr { margin-top: 6px; }
+/* 下車點／省時提醒：自成一行，接在地址鈕下面 */
+.links .drop { flex-basis: 100%; font-size: 12.5px; line-height: 1.6; color: #6b4d00; background: #fffbea; border-left: 3px solid #efd98a; padding: 3px 8px; border-radius: 0 6px 6px 0; }
+@media print { a.uber { display: none; } .addrbtn { border: none; padding: 0; background: none; } .addrbtn em { display: none; } }
+
+/* ── 推薦點法（到店快速點餐） ── */
+.orderbox {
+  margin-top: 7px; padding: 8px 11px; border-radius: 10px;
+  background: #fdf1e3; border: 1px solid #edd6b4; border-left: 4px solid var(--sun);
+  font-size: 12.9px; line-height: 1.72; color: #6b4a12;
+}
+.orderbox b { color: #a35c00; }
+.card .orderbox { font-size: 12.4px; padding: 7px 10px; margin: 7px 0 2px; }
+/* 存地圖頁入口（結果頁工具列） */
+.r-actions a.r-abtn {
+  border-radius: 999px; padding: 10px 18px; font-size: 14px; font-weight: 700;
+  background: #e8f9ef; color: #0b8a43; border: 1.5px solid #b5e6c8; box-shadow: var(--shadow);
+}
+.r-actions a.r-abtn:hover { text-decoration: none; background: #d8f3e3; }
 .badge.pin { background: #e8f0ff; color: #2b5fa8; border: 1px solid #b9cef0; }
 .r-actions button.rst { background: var(--sun); color: #4a3200; }
 @media print { .e-edit { display: none !important; } }
