@@ -902,8 +902,11 @@
     if (at == null) return null;
     const lead = (it.plan && it.planAnchor != null)
       ? it.plan.slice(0, it.planAnchor).reduce((s, x) => s + x.mins, 0) : 0;
-    const need = at - lead;
+    const need0 = at - lead;
+    // 預約比店家開門還早（例如填 07:40 但 08:30 才開館）→ 以開門時間為準，不會為此半夜出發
+    const need = (it.open != null && it.open > need0) ? it.open : need0;
     return { at, need, lead, late: need < start, short: need < start ? start - need : 0,
+      openClamp: (it.open != null && at < it.open) ? it.open : null,   // 只有預約本身早於開門才註明
       label: (it.plan && it.planAnchor != null) ? it.plan[it.planAnchor].label : null };
   }
 
@@ -928,7 +931,29 @@
   }
 
   /* ---- 每日時間軸試算 ---- */
+  /* 有填預約時間、照原本出發時間趕不上 → 把當天出發時間提前（最早 06:00；抵達日受航班限制不能提前）。
+     提前後若還是差一樣多（店家尚未開門這類），就還原並留下「可能來不及」的提示。 */
   function computeTimeline(day) {
+    delete day.depOverride; delete day.depAt;
+    computeTimelineOnce(day);
+    if (day.key === 'd1') return;
+    for (let k = 0; k < 4; k++) {
+      const late = (day.tl || []).find(r => r.k === 'item' && r.at && r.at.late);
+      if (!late) break;
+      const want = Math.floor((day.depTime - late.at.short) / 5) * 5;
+      if (want < 360 || want >= day.depTime) break;
+      const prevShort = late.at.short, prevOverride = day.depOverride, prevAt = day.depAt;
+      day.depOverride = want; day.depAt = late.at.at;
+      computeTimelineOnce(day);
+      const again = (day.tl || []).find(r => r.k === 'item' && r.at && r.at.late);
+      if (again && again.at.short >= prevShort - 1) {   // 提早也沒用 → 還原這一步
+        if (prevOverride == null) { delete day.depOverride; delete day.depAt; } else { day.depOverride = prevOverride; day.depAt = prevAt; }
+        computeTimelineOnce(day);
+        break;
+      }
+    }
+  }
+  function computeTimelineOnce(day) {
     const t = CONFIG.trip;
     const fi = flightInfo();
     const hv = hotelInfo();
@@ -949,15 +974,23 @@
     let homeFrom = -1;
     if (day.charter) for (let i = day.seq.length - 1; i >= 0 && isHomePos(posOfStop(day.seq[i], day)); i--) homeFrom = i;
     day.charterEnd = null;
-    if (day.charter) {
-      const cst = CONFIG.charter || {};
-      rows.push({ k: 'fixed', t: fmtT(cst.startMin || 510), text: `🚐 包車於飯店出發｜${charterInfo().label}`,
-        sub: '包車 10 小時基準、自上車起算；若首站較晚開門可與司機約定延後發車。' + (cst.overTxt || '超時費以現金支付司機') });
-    }
-    let cur = { lat: HOTEL.lat, lng: HOTEL.lng, zone: HOTEL.zone };
-    let time = day.charter ? ((CONFIG.charter || {}).startMin || 510)
+    const baseStart = day.charter ? ((CONFIG.charter || {}).startMin || 510)
       : day.key === 'd1' ? d1StartMin() : day.key === 'd5' ? 520
       : (day.seq[0] && day.seq[0].slotKey === 'brunch' ? 510 : 540);
+    // 有預約趕不上時，外層 computeTimeline 會用 depOverride 把出發時間提前
+    const start0 = (day.depOverride != null && day.depOverride < baseStart) ? day.depOverride : baseStart;
+    day.depTime = start0;
+    day.depEarly = start0 < baseStart ? baseStart - start0 : 0;
+    const earlyTxt = day.depEarly ? `為了趕上 ${fmtT(day.depAt)} 的預約，比平常的 ${fmtT(baseStart)} 提早 ${durTxt(day.depEarly)} 出發。` : '';
+    if (day.charter) {
+      const cst = CONFIG.charter || {};
+      rows.push({ k: 'fixed', t: fmtT(start0), text: `🚐 包車於飯店出發｜${charterInfo().label}`,
+        sub: (earlyTxt ? earlyTxt + '請預訂時就跟司機約好提早發車。' : '') + '包車 10 小時基準、自上車起算；若首站較晚開門可與司機約定延後發車。' + (cst.overTxt || '超時費以現金支付司機') });
+    } else if (day.depEarly) {
+      rows.push({ k: 'fixed', t: fmtT(start0), text: '⏰ 提早從飯店出發', sub: earlyTxt + '早餐請在飯店或超商先解決。' });
+    }
+    let cur = { lat: HOTEL.lat, lng: HOTEL.lng, zone: HOTEL.zone };
+    let time = start0;
     let transCost = 0, transMins = 0, transKm = 0;
     let lastMeal = -999;                       // 上一頓正餐的開始時間
     let lastMealEnd = -999;                    // 上一頓正餐「吃完」的時間（宵夜間隔用）
@@ -977,10 +1010,11 @@
       const arr0 = time + (near ? 3 : tr.mins);
       if (day.charter && si === homeFrom) day.charterEnd = ceil5(arr0);   // 包車在這站放人、計時到此為止
       let start = ceil5(arr0);
-      if (target && target > start) start = target;
-      // 已預約的時段（例如膠囊列車 14:00）：以預約時間為準往前反推該幾點到
+      // 已預約的時段（例如賞鯨 08:00 集合、膠囊列車 14:00）：以預約時間為準往前反推該幾點到，
+      // 不再套時段下限（預約 11:00 的午餐就是 11:00）；趕不上的話外層會把當天出發時間提前
       const aInfo = atAlign(stop, start);
-      if (aInfo && aInfo.need > start) start = aInfo.need;
+      if (aInfo) { if (aInfo.need > start) start = aInfo.need; }
+      else if (target && target > start) start = target;
       // 出爐／整點場次：對齊到真的買得到的那一批，等候時間誠實算進時間軸
       const bInfo = batchAlign(stop, start);
       if (bInfo && bInfo.start > start) start = bInfo.start;
@@ -1964,26 +1998,28 @@
       ${r.supperWait ? `<div class="e-meta sub">🍽 晚餐吃完先消化——宵夜自動延後 ${durTxt(r.supperWait)} 開始（中間是自由時間，可先回飯店放戰利品）</div>` : ''}
       ${siblings(it).length ? `<div class="e-meta sub">🏪 走不到也沒關係：${siblings(it).map(s => esc(s.area)).join('、')}也有分店</div>` : ''}
       ${it.close != null && r.end > it.close ? `<div class="e-meta warnline">⚠️ 這家約 ${fmtT(it.close)} 打烊，此時段可能來不及——建議提前或改選同品牌其他分店</div>` : ''}
-      ${atHtml(r)}${batchHtml(r)}${orderHtml(it)}
+      ${atHtml(r, day)}${batchHtml(r)}${orderHtml(it)}
       <div class="e-desc">${esc(it.desc)}</div>${planHtml(it, r.t)}${linkRow(it.links, imgQ(it), posOfItem(it))}
       ${editBar(it, day, r.slotKey, cell, r.si)}`);
   }
 
   /* 已預約時段提醒：來不來得及、幾點該到 */
-  function atHtml(r) {
+  function atHtml(r, day) {
     const a = r.at;
     if (!a) return '';
+    const why = day && day.key === 'd1' ? '抵達日受航班時間限制，無法更早出發'
+      : (day && day.depEarly ? `已經提早到 ${fmtT(day.depTime)} 出發，仍差這麼多` : '就算提早到 06:00 出發也趕不上，或店家那時尚未開門');
     const it0 = r.cell && r.cell.item;
     const note = it0 && it0.atNote ? `<div class="bt-all">📌 ${esc(it0.atNote)}</div>` : '';
     const what = a.label ? `的「${esc(a.label)}」` : '';
     if (a.late) {
       return `<div class="batchbox warn">⚠️ <b>預約 ${fmtT(a.at)}${what}可能來不及</b>——照這個順序最快
-        ${fmtT(r.t + a.lead)} 才輪到，差了 ${durTxt(a.short)}。
-        建議縮短前一站停留、改搭計程車，或用下面的「▲ 提早」把這站往前移。${note}</div>`;
+        ${fmtT(r.t + a.lead)} 才輪到，差了 ${durTxt(a.short)}（${why}）。
+        建議縮短前一站停留、改搭計程車、把預約改晚一點，或用下面的「▲ 提早」把這站往前移。${note}</div>`;
     }
     return `<div class="batchbox ok">🎫 <b>已預約 ${fmtT(a.at)}${what}</b>——行程以它為準往前反推：
       ${a.lead ? `需在 <b>${fmtT(a.need)}</b> 前到站（留 ${durTxt(a.lead)} 報到換票）` : `需在 <b>${fmtT(a.need)}</b> 前抵達`}，
-      上面的時間已經照這個算好了。${note}</div>`;
+      上面的時間已經照這個算好了${day && day.depEarly ? `——當天出發時間已自動提早到 ${fmtT(day.depTime)}` : ''}${a.openClamp ? `（預約時間早於 ${fmtT(a.openClamp)} 開門，以開門時間為準）` : ''}。${note}</div>`;
   }
 
   /* 推薦點法：到店直接照這個點，不用再研究菜單（日文菜名可直接指給店員看）。
@@ -2295,7 +2331,7 @@
         const cst = CONFIG.charter || {};
         const ch = charterInfo();
         const endT = d.charterEnd != null ? d.charterEnd : (hr ? hr.t : null);
-        const span = endT != null ? endT - (cst.startMin || 510) : 0;
+        const span = endT != null ? endT - (d.depTime != null ? d.depTime : (cst.startMin || 510)) : 0;
         const over = span - (cst.baseMins || 600);
         const endTxt = d.charterEnd != null ? `${fmtT(d.charterEnd)} 回到那霸放人，之後在飯店附近用餐步行即可` : '回到飯店';
         return `<div class="tip">🚐 <b>本日全程包車：</b>${esc(ch.label)}｜費用${esc(ch.costTxt)}。${over > 0
