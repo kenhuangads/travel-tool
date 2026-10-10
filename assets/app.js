@@ -528,9 +528,18 @@
     d1dinner: 1080, d1night: 1230, d5brunch: 525, d5shop: 600, d5lunch: 680
   };
   // 該時段是否落在店家營業時間內（收尾預留 30 分鐘）
-  function slotOpen(item, slotKey) {
-    const t = SLOT_NOMINAL[slotKey];
+  // 抵達日（day 傳 d1）以「到飯店後可出發的時間」為基準：飛機晚到就沒有「抵達首餐」這回事——
+  // 比該時段最晚開始時間還晚才到，該時段一律不用（避免 17:45 首餐＋21:15 晚餐連吃兩頓）
+  const d1StartMin = () => ceil5(flightInfo().obArr + 105);
+  const d1SlotDead = (day, slotKey) => !!(day && day.key === 'd1' && day.startMin != null &&
+    SLOT_LATEST[slotKey] != null && day.startMin > SLOT_LATEST[slotKey]);
+  function slotOpen(item, slotKey, day) {
+    let t = SLOT_NOMINAL[slotKey];
     if (t == null) return true;
+    if (day && day.key === 'd1' && day.startMin != null) {
+      if (d1SlotDead(day, slotKey)) return false;
+      t = Math.max(t, day.startMin);
+    }
     if (item.close != null && t + 30 > item.close) return false;
     if (item.open != null && t < item.open) return false;
     return true;
@@ -947,7 +956,7 @@
     }
     let cur = { lat: HOTEL.lat, lng: HOTEL.lng, zone: HOTEL.zone };
     let time = day.charter ? ((CONFIG.charter || {}).startMin || 510)
-      : day.key === 'd1' ? ceil5(fi.obArr + 105) : day.key === 'd5' ? 520
+      : day.key === 'd1' ? d1StartMin() : day.key === 'd5' ? 520
       : (day.seq[0] && day.seq[0].slotKey === 'brunch' ? 510 : 540);
     let transCost = 0, transMins = 0, transKm = 0;
     let lastMeal = -999;                       // 上一頓正餐的開始時間
@@ -1057,6 +1066,7 @@
 
     const days = makeDays();
     days.forEach((d, i) => { d._i = i; });
+    days[0].startMin = d1StartMin();   // 抵達日從幾點開始排（到飯店＋放行李）
 
     /* 依勾選內容重新分配 Day2-4 的主題區域（區域勾得不均時自動調整）：
        需求＝各區景點數（停留 ≥2 小時的大景點算 1.5）＋非飯店圈餐飲 ×0.5；飯店圈餐飲哪天都能吃、不計。
@@ -1126,7 +1136,7 @@
           if (!(sk in d.slots) || d.slots[sk]) continue;
           const acc = ACCEPT[sk] || [];
           if (!acc.includes(key)) continue;
-          if (!slotOpen(item, sk)) continue; // 該時段店家已打烊／尚未開門
+          if (!slotOpen(item, sk, d)) continue; // 該時段店家已打烊／尚未開門（抵達日另看到飯店時間）
           if (!openOnDay(item, d)) continue;  // 這天店家公休
           d.slots[sk] = Object.assign({ item, suggest: false }, extra || {});
           return true;
@@ -1168,8 +1178,8 @@
         // 第一輪：指定時段（使用者說了算）→ 第二輪：型態偏好 → 第三輪：性質相近的空時段
         // 使用者已經指定了這天，寧可換個時段也不要讓它掉出行程
         const ok = (pin.s && put(pin.s)) ||
-          pref.some(sk => (ACCEPT[sk] || []).includes(key) && slotOpen(it, sk) && put(sk)) ||
-          RELAX.some(sk => d.slotKeys.indexOf(sk) >= 0 && slotOpen(it, sk) && put(sk));
+          pref.some(sk => (ACCEPT[sk] || []).includes(key) && slotOpen(it, sk, d) && put(sk)) ||
+          RELAX.some(sk => d.slotKeys.indexOf(sk) >= 0 && slotOpen(it, sk, d) && put(sk));
         if (!ok) return;
       });
 
@@ -1267,7 +1277,7 @@
           !(f.brand && usedBrands.has(f.brand)) &&
           (f.flex || [f.cluster]).includes(day.cluster) &&
           (ACCEPT[slotKey] || []).includes(f.slot) &&
-          slotOpen(f, slotKey) &&
+          slotOpen(f, slotKey, day) &&
           openOnDay(f, day) &&
           (!filter || filter(f)));
         // 距離感知：推薦度高但離當天其他行程太遠的店要扣分，避免為了一餐跑十幾公里
@@ -1329,7 +1339,7 @@
       if (storeLoad(di) >= 2) return;
       if (d.full) {
         if (!d.slots.afternoon && !d.slots.evening) d.slots.afternoon = { anchor: a };
-      } else if (d.key === 'd1' && !d.slots.pmstroll) {
+      } else if (d.key === 'd1' && !d.slots.pmstroll && !d1SlotDead(d, 'pmstroll')) {
         d.slots.pmstroll = { anchor: a };
       }
     });
@@ -1409,7 +1419,7 @@
             !suggested2.has(f.id) &&
             f.cluster === d.cluster &&
             (ACCEPT[slotKey] || []).indexOf(f.slot) >= 0 &&
-            slotOpen(f, slotKey) && openOnDay(f, d))
+            slotOpen(f, slotKey, d) && openOnDay(f, d))
             .sort((a, b) => ((b.rec || 0) - 4 * nearestKm(pts, b)) - ((a.rec || 0) - 4 * nearestKm(pts, a)));
           if (!cand.length) return;
           // 試著插進去，確認不會害當天超過門禁
@@ -1471,7 +1481,7 @@
           if (dd.key === 'd5') return null;                       // 返程日不塞
           if (!openOnDay(it, dd)) return null;                    // 這天公休
           const free = dayFreeSlots(dd);
-          const hasSlot = free.some(k => (ACCEPT[k] || []).includes(key) && slotOpen(it, k));
+          const hasSlot = free.some(k => (ACCEPT[k] || []).includes(key) && slotOpen(it, k, dd));
           const pts = dayPoints(dd);
           const km = pts.length ? nearestKm(pts, it) : havKm(HOTEL, it);
           const near = (it.flex || [it.cluster]).indexOf(dd.cluster) >= 0;
@@ -2036,7 +2046,7 @@
   function editBar(it, day, slotKey, cell, si) {
     if (!day || cell.suggest) return '';
     const di = day._idx;
-    const opts = (day.slotKeys || []).filter(k => k !== 'd5shop').map(k =>
+    const opts = (day.slotKeys || []).filter(k => k !== 'd5shop' && !d1SlotDead(day, k)).map(k =>
       `<option value="${k}"${k === slotKey ? ' selected' : ''}>${SLOT_LABELS[k] || k}</option>`).join('');
     return `<div class="e-edit no-print">
       <span class="ed-lab">調整</span>
@@ -2299,6 +2309,9 @@
       const closedTip = (d.closedShops && d.closedShops.length) ? `<div class="tip holiday">🚫 ${d.closedShops.map(g => esc(g.store.name)).join('、')}<b>本日${esc(closedWhy(d.closedShops[0].store, d))}</b>——${d.closedShops.map(g => g.items.map(i => esc(i.name)).join('、')).join('；')} 買不到。${d.full ? '可用右上角「🔄 換天」把這天和別天整個對調，避開公休日；' : ''}或另外找地方買，出發前先確認營業狀況。</div>` : '';
       const mealTip = (d.noLunch || d.noDinner) ? `<div class="tip holiday">🍽️ 這天${d.noLunch && d.noDinner ? '中午與晚上都' : d.noLunch ? '中午' : '晚上'}沒有安排用餐——${d.noLunch && !d.noDinner ? '上午的行程較滿，記得在景點附近先墊個東西' : '建議從下面的同區備選挑一家，或在附近隨機找一家'}。</div>` : '';
       const lunchTip = d.lunchDropped ? `<div class="tip">🍜 登機前時間有限，午餐建議外帶輕食或在機場用餐（那霸機場國內線美食街選擇不少）。</div>` : '';
+      // 抵達日：飛機晚到就不硬塞「抵達首餐」；到飯店已過 21:00 連晚餐都不排，提醒自行解決
+      const lateTip = (d.key === 'd1' && d.startMin != null && d.startMin > SLOT_LATEST.latelunch)
+        ? `<div class="tip">🌙 抵達日 ${fmtT(d.startMin)} 才能從飯店出發，今天只排${d.startMin > SLOT_LATEST.d1dinner ? '宵夜（晚餐建議在機場國內線美食街或飯店周邊超商、居酒屋自行解決）' : '一頓晚餐（不另排「抵達首餐」，免得兩頓正餐連著吃）'}。</div>` : '';
       return `
       <section class="day" id="day${i + 1}" style="--c:${cl.color}">
         <header class="day-head">
@@ -2309,7 +2322,7 @@
         </header>
         ${dayTips[d.key] ? `<div class="tip holiday">${esc(dayTips[d.key])}</div>` : ''}
         <div class="tip">🚌 ${esc(TRANSIT[d.cluster])}</div>
-        ${transTip}${charterTip}${squeezeTip}${ordTip}${trimTip}${pinClosedTip}${closedTip}${mealTip}${lunchTip}
+        ${lateTip}${transTip}${charterTip}${squeezeTip}${ordTip}${trimTip}${pinClosedTip}${closedTip}${mealTip}${lunchTip}
         ${routeMapHtml(d)}
         <div class="timeline">${rows}</div>
         ${backup}
