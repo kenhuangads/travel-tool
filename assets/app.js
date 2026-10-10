@@ -1021,19 +1021,6 @@
       // 店家還沒開門就不硬排：把開始時間對齊到開門時刻（路線最佳化會自動避開乾等的排法）
       const opAt = (stop.type === 'cell' && stop.cell && stop.cell.item && stop.cell.item.open != null) ? stop.cell.item.open : null;
       if (opAt != null && opAt > start) start = opAt;
-      if (near) {
-        const gap = start - time;
-        if (gap >= 25) rows.push({ k: 'free', t: time, mins: gap });
-      } else {
-        let dep = start - tr.mins;
-        const gap = dep - time;
-        if (gap >= 25) rows.push({ k: 'free', t: time, mins: gap });
-        else dep = time;
-        rows.push({ k: 'trans', dep, arr: dep + tr.mins, tr });
-        transCost += tr.fare2; transMins += tr.mins; transKm += (tr.km || 0);
-        modeCnt[tr.mode]++;
-        if (tr.mode === 'metro') metroYen += tr.yen || 0;
-      }
       // 剛吃完沒多久不會再吃一頓 —— 正餐之間至少間隔 3.5 小時
       const mealItem = stop.type === 'cell' && stop.cell && isRealMeal(stop.cell.item);
       if (mealItem && start < lastMeal + lastGap) start = ceil5(lastMeal + lastGap);
@@ -1050,6 +1037,21 @@
       if (supperItem) {
         const SG = (CONFIG.supperGap != null) ? CONFIG.supperGap : 60;
         if (start < lastMealEnd + SG) { supperWait = ceil5(lastMealEnd + SG) - start; start = ceil5(lastMealEnd + SG); }
+      }
+      /* 開始時間定案後才畫交通列：出發＝開始時間往前推車程，抵達就是開始時間——
+         前一站結束到出發之間的空檔 ≥25 分列「自由時間」，不到 25 分就當作在前一站多待一下
+         （不會再出現「17:20 抵達、17:35 才開始」這種對不起來的數字） */
+      if (near) {
+        const gap = start - time;
+        if (gap >= 25) rows.push({ k: 'free', t: time, mins: gap });
+      } else {
+        const dep = Math.max(time, start - tr.mins);
+        const gap = dep - time;
+        if (gap >= 25) rows.push({ k: 'free', t: time, mins: gap });
+        rows.push({ k: 'trans', dep, arr: dep + tr.mins, tr });
+        transCost += tr.fare2; transMins += tr.mins; transKm += (tr.km || 0);
+        modeCnt[tr.mode]++;
+        if (tr.mode === 'metro') metroYen += tr.yen || 0;
       }
       const stay = stayOfStop(stop, day);
       const end = start + stay;
