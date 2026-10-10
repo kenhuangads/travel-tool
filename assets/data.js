@@ -7,7 +7,7 @@
 
 const CONFIG = {
   baseUrl: 'https://kenhuangads.github.io/travel-tool/',
-  build: '20261010f',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
+  build: '20261010g',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
   rateNote: '價格換算基準：100日圓 ≈ NT$21（2026年中匯率概估）。所有金額為估算平均範圍，實際以現場與當日匯率為準。',
   minSpots: 3,
   minFoods: 6,

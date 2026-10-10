@@ -108,6 +108,7 @@
     stPins: {},             // 購物門市手動指定：{ 門市key: { d:第幾天(0-4) } }
     exSt: {},               // 手動移除的採購站：{ 門市key: 1 }（品項退回排不進面板，可再改排回來）
     exAn: {},               // 手動移除的散步／採購時間填充錨點：{ 天索引: 1 }
+    exSug: {},              // 手動移除的「推薦補位」：{ 項目id: 1 }（之後不再推薦這家）
     ord: {},                // 當日手動排序：{ 第幾天: [停靠點key…] }（key＝項目id／st:門市／d5shop／anchor）
     dayCl: null,            // 整天對調：Day2-4 各自負責的生活圈，null＝系統自動安排
     flight: {},             // 航班時間（分鐘制）：{ obDep, obArr, ibDep, ibArr, ap }；空＝用預設示意時間
@@ -292,6 +293,7 @@
       localStorage.setItem('oki_stpin_v1', JSON.stringify(state.stPins));
       localStorage.setItem('oki_exst_v1', JSON.stringify(state.exSt));
       localStorage.setItem('oki_exan_v1', JSON.stringify(state.exAn));
+      localStorage.setItem('oki_exsug_v1', JSON.stringify(state.exSug));
       localStorage.setItem('oki_ord_v1', JSON.stringify(state.ord));
       localStorage.setItem('oki_daycl_v1', JSON.stringify(state.dayCl));
       localStorage.setItem('oki_flight_v1', JSON.stringify(state.flight));
@@ -309,6 +311,7 @@
       try { state.stPins = JSON.parse(localStorage.getItem('oki_stpin_v1') || '{}') || {}; } catch (e) { state.stPins = {}; }
       try { state.exSt = JSON.parse(localStorage.getItem('oki_exst_v1') || '{}') || {}; } catch (e) { state.exSt = {}; }
       try { state.exAn = JSON.parse(localStorage.getItem('oki_exan_v1') || '{}') || {}; } catch (e) { state.exAn = {}; }
+      try { state.exSug = JSON.parse(localStorage.getItem('oki_exsug_v1') || '{}') || {}; } catch (e) { state.exSug = {}; }
       try { state.ord = JSON.parse(localStorage.getItem('oki_ord_v1') || '{}') || {}; } catch (e) { state.ord = {}; }
       try { state.dayCl = JSON.parse(localStorage.getItem('oki_daycl_v1') || 'null'); } catch (e) { state.dayCl = null; }
       try { state.flight = JSON.parse(localStorage.getItem('oki_flight_v1') || '{}') || {}; } catch (e) { state.flight = {}; }
@@ -343,9 +346,10 @@
     const ap = (state.flight && state.flight.ap && state.flight.ap !== 'tpe') ? '&ap=' + state.flight.ap : '';
     const xs = Object.keys(state.exSt).filter(k => STORES[k]).join('.');
     const xa = Object.keys(state.exAn).filter(d => d >= 0 && d <= 4).join('.');
+    const xg = Object.keys(state.exSug).filter(id => DB[id]).join('.');
     return (p ? '&p=' + p : '') + (sp ? '&sp=' + sp : '') + (o ? '&o=' + encodeURIComponent(o) : '') +
       (at ? '&at=' + at : '') + dc + (fl ? '&fl=' + fl : '') + ht + pp + ap +
-      (xs ? '&xs=' + xs : '') + (xa ? '&xa=' + xa : '');
+      (xs ? '&xs=' + xs : '') + (xa ? '&xa=' + xa : '') + (xg ? '&xg=' + xg : '');
   };
   function shareUrl() {
     const ids = [...state.sel].sort();
@@ -408,6 +412,9 @@
     const xa = p.get('xa');
     state.exAn = {};
     if (xa) xa.split('.').forEach(d => { if (d !== '' && +d >= 0 && +d <= 4) state.exAn[+d] = 1; });
+    const xg = p.get('xg');
+    state.exSug = {};
+    if (xg) xg.split('.').forEach(id => { if (DB[id]) state.exSug[id] = 1; });
     state.fromShare = true;
     return true;
   }
@@ -1331,7 +1338,7 @@
       const suggest = (day, slotKey, filter) => {
         if (day.slots[slotKey]) return;
         const cand = FOODS.filter(f =>
-          !state.sel.has(f.id) && !suggested.has(f.id) &&
+          !state.sel.has(f.id) && !suggested.has(f.id) && !state.exSug[f.id] &&
           !(f.brand && usedBrands.has(f.brand)) &&
           (f.flex || [f.cluster]).includes(day.cluster) &&
           (ACCEPT[slotKey] || []).includes(f.slot) &&
@@ -1474,7 +1481,7 @@
           if (has || d.slots[slotKey]) return;
           const pts = dayPoints(d);
           const cand = FOODS.filter(f =>
-            !suggested2.has(f.id) &&
+            !suggested2.has(f.id) && !state.exSug[f.id] &&
             f.cluster === d.cluster &&
             (ACCEPT[slotKey] || []).indexOf(f.slot) >= 0 &&
             slotOpen(f, slotKey, d) && openOnDay(f, d))
@@ -2104,8 +2111,14 @@
 
   /* 手動調整列：本日排序／搬到別天／改時段／移除，改完會自動重排整份行程 */
   function editBar(it, day, slotKey, cell, si) {
-    if (!day || cell.suggest) return '';
+    if (!day) return '';
     const di = day._idx;
+    // 推薦補位（沒勾選的）：可以「不要這個推薦」或「加入行程」變成正式勾選
+    if (cell.suggest) return `<div class="e-edit no-print">
+      <span class="ed-lab">推薦補位</span>
+      <button class="ed go" data-adopt="${it.id}|${di}|${slotKey || ''}" title="變成正式勾選並固定在這天這個時段，之後可像其他站一樣調整">✚ 加入行程</button>
+      <button class="ed del" data-xsug="${it.id}" title="拿掉這家推薦，之後也不再推薦它（空檔會改推別家或變自由時間）">✕ 不要這個推薦</button>
+    </div>`;
     const opts = (day.slotKeys || []).filter(k => k !== 'd5shop' && !d1SlotDead(day, k)).map(k =>
       `<option value="${k}"${k === slotKey ? ' selected' : ''}>${SLOT_LABELS[k] || k}</option>`).join('');
     return `<div class="e-edit no-print">
@@ -2465,7 +2478,7 @@
         </div>
         <details class="ov-wrap" data-ui="ov"${uiOpen.ov ? ' open' : ''}><summary><b>✅ 勾選總覽</b><i class="sum-hint">${plan.sel.filter(i => i.kind !== 'shop').length} 個景點與餐飲・點開檢視哪些有排入</i></summary><div class="ov-body">${overview}</div></details>
         ${unpHtml}
-        <details class="ov-wrap edit-hint no-print" data-ui="hint"${uiOpen.hint ? ' open' : ''}><summary>✏️ <b>怎麼手動微調</b><i class="sum-hint">換天／改順序／改時段／預約時間…使用說明</i></summary><div class="ov-body">整天想換日子的話，用 Day 2～4 標題右邊的 <b>🔄 換天</b>——例如按 Day 2 的「↔ Day 3」，兩天的行程就整個對調（同一天的項目一起搬，公休日與交通會重算）。每個停靠點（景點、美食、<b>採購站也一樣</b>）下方都有「調整」列——<b>▲ ▼</b> 直接改當天的先後順序（改完出發抵達時間全部重新試算）、<b>◀ ▶</b> 搬到別天、<b>時段選單</b>改成當天其他時段、<b>✕ 移除</b>拿掉不想去的；Day 5 最終採購裡的每間店還能用下拉選單提前到別天買。改完系統會立刻重排整份行程（交通、用餐時間、回飯店時間都會重新計算），手動指定的會標上 📌 並優先保留、手動排的順序不會被系統推翻（該日會標「🔒 本日順序已手動固定」，可一鍵改回自動）。餐廳若已訂位，在「調整」列填上<b>預約時間</b>，整天會以它為錨點反推。</div></details>
+        <details class="ov-wrap edit-hint no-print" data-ui="hint"${uiOpen.hint ? ' open' : ''}><summary>✏️ <b>怎麼手動微調</b><i class="sum-hint">換天／改順序／改時段／預約時間…使用說明</i></summary><div class="ov-body">整天想換日子的話，用 Day 2～4 標題右邊的 <b>🔄 換天</b>——例如按 Day 2 的「↔ Day 3」，兩天的行程就整個對調（同一天的項目一起搬，公休日與交通會重算）。每個停靠點（景點、美食、<b>採購站也一樣</b>）下方都有「調整」列——<b>▲ ▼</b> 直接改當天的先後順序（改完出發抵達時間全部重新試算）、<b>◀ ▶</b> 搬到別天、<b>時段選單</b>改成當天其他時段、<b>✕ 移除</b>拿掉不想去的（標「推薦補位・未勾選」的站則是「✕ 不要這個推薦」／「✚ 加入行程」）；Day 5 最終採購裡的每間店還能用下拉選單提前到別天買。改完系統會立刻重排整份行程（交通、用餐時間、回飯店時間都會重新計算），手動指定的會標上 📌 並優先保留、手動排的順序不會被系統推翻（該日會標「🔒 本日順序已手動固定」，可一鍵改回自動）。餐廳若已訂位，在「調整」列填上<b>預約時間</b>，整天會以它為錨點反推。</div></details>
         ${versionBarHtml()}
         <div class="r-actions no-print">
           <button id="copyText">📋 複製文字版行程</button>
@@ -2474,10 +2487,10 @@
           <button id="printBtn">🖨️ 列印／存 PDF</button>
           <button id="pdfBtn" title="iPhone 請用這個：切成 PDF 版面後，Safari 分享 → 選項 → PDF → 儲存到檔案，連結才點得動">📄 PDF 版面（iPhone 分享用）</button>
           <a class="r-abtn" href="${esc(CONFIG.baseUrl + 'savelist.html?s=' + [...state.sel].sort().join('.') + (state.hotel && state.hotel !== 'collective' ? '&ht=' + state.hotel : ''))}" target="_blank" rel="noopener">📍 存進 Google 地圖</a>
-          ${(Object.keys(state.pins).length || Object.keys(state.stPins).length || Object.keys(state.ord).length || state.dayCl || Object.keys(state.exSt).length || Object.keys(state.exAn).length) ? `<button id="resetPins" class="rst">↩️ 還原自動安排（${[
+          ${(Object.keys(state.pins).length || Object.keys(state.stPins).length || Object.keys(state.ord).length || state.dayCl || Object.keys(state.exSt).length || Object.keys(state.exAn).length || Object.keys(state.exSug).length) ? `<button id="resetPins" class="rst">↩️ 還原自動安排（${[
             (Object.keys(state.pins).length + Object.keys(state.stPins).length) ? '已調整 ' + (Object.keys(state.pins).length + Object.keys(state.stPins).length) + ' 項' : '',
             Object.keys(state.ord).length ? '已改 ' + Object.keys(state.ord).length + ' 天順序' : '',
-            (Object.keys(state.exSt).length + Object.keys(state.exAn).length) ? '已移除 ' + (Object.keys(state.exSt).length + Object.keys(state.exAn).length) + ' 站' : '',
+            (Object.keys(state.exSt).length + Object.keys(state.exAn).length + Object.keys(state.exSug).length) ? '已移除 ' + (Object.keys(state.exSt).length + Object.keys(state.exAn).length + Object.keys(state.exSug).length) + ' 站' : '',
             state.dayCl ? '已換過天' : ''].filter(Boolean).join('、')}）</button>` : ''}
         </div>
       </header>
@@ -2905,7 +2918,7 @@
       window.scrollTo(0, Math.max(0, t.getBoundingClientRect().top + window.scrollY - off));
     }, true);
     $('#result-inner').addEventListener('click', e => {
-      if (e.target.closest('#resetPins')) { state.pins = {}; state.stPins = {}; state.ord = {}; state.at = {}; state.dayCl = null; state.exSt = {}; state.exAn = {}; reflow('已還原成系統自動安排'); return; }
+      if (e.target.closest('#resetPins')) { state.pins = {}; state.stPins = {}; state.ord = {}; state.at = {}; state.dayCl = null; state.exSt = {}; state.exAn = {}; state.exSug = {}; reflow('已還原成系統自動安排'); return; }
       const da = e.target.closest('[data-dayauto]');
       if (da) {
         delete state.ord[+da.dataset.dayauto];
@@ -2949,6 +2962,23 @@
         state.exSt[sid] = 1;
         delete state.stPins[sid];
         reflow(`已移除採購站「${STORES[sid].name}」——想買的品項列在頂部「排不進的門市」面板，隨時可以改排回來`);
+        return;
+      }
+      const xg = e.target.closest('[data-xsug]');
+      if (xg) {
+        const id = xg.dataset.xsug;
+        if (!DB[id]) return;
+        state.exSug[id] = 1;
+        reflow(`已移除推薦「${DB[id].name}」，之後不會再推薦它`);
+        return;
+      }
+      const adopt = e.target.closest('[data-adopt]');
+      if (adopt) {
+        const [id, d, sk] = adopt.dataset.adopt.split('|');
+        if (!DB[id] || !(+d >= 0 && +d <= 4)) return;
+        state.sel.add(id);
+        state.pins[id] = { d: +d, s: sk || null, t: Date.now() };
+        reflow(`已把「${DB[id].name}」加入行程並固定在 Day ${+d + 1}`);
         return;
       }
       const adp = e.target.closest('[data-androp]');
