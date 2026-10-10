@@ -570,6 +570,16 @@
     return `週${DOW_TXT[day.dow]}公休`;
   };
 
+  /* ---- 回飯店門禁（可關閉）＋飯店圈 ----
+     CONFIG.curfew.normal 為 null ＝ 不設門禁：想排多晚都行、不再為了準時回飯店刪站，只在回飯店那一列標示時間。
+     飯店圈＝離飯店 homeKm（預設 2.5 公里）以內：這圈的餐廳哪一天晚上都能吃（包車日傍晚回那霸後再吃）。 */
+  const CF = CONFIG.curfew || {};
+  const CURFEW_ON = CF.normal != null;
+  const HOME_KM = (CONFIG.homeKm != null) ? CONFIG.homeKm : 2.5;
+  const isHomePos = p => havKm(HOTEL, p) <= HOME_KM;
+  // 當天「最晚回飯店」：返程日看航班；其他天有設門禁才有上限，沒設就不限
+  const dayLimit = day => day.key === 'd5' ? (flightInfo().ibDep - 190) : (CURFEW_ON ? (day.curfewLimit || CF.normal) : Infinity);
+
   // 正餐＝會吃飽的一頓（咖啡／甜點／小吃不算），用來檢查兩餐間隔
   const isRealMeal = it => it && it.kind === 'food' &&
     ['brunch', 'lunch', 'dinner', 'meal'].indexOf(it.slot) >= 0;
@@ -684,8 +694,7 @@
     const ordK = state.ord[day._i];
     if (ordK && ordK.length) {
       day.manualOrd = true;
-      const CFm = CONFIG.curfew || { normal: 1290, far: 1320, farKm: 12 };
-      day.curfewLimit = seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= CFm.farKm) ? CFm.far : CFm.normal;
+      day.curfewLimit = CURFEW_ON ? (seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= (CF.farKm || 20)) ? CF.far : CF.normal) : null;
       const ix = {};
       ordK.forEach((k, i) => { if (ix[k] == null) ix[k] = i + 1; });
       const listed = seq.filter(st => ix[stopKey(st)]);
@@ -713,9 +722,8 @@
     const bandOf = st => st.type === 'd5shop' ? 0
       : (SLOT_BAND[st.slotKey] != null ? SLOT_BAND[st.slotKey] : 2);
 
-    // 先估當天門禁（有 12 公里外的遠程景點就放寬），供插入位置判斷用
-    const CFc = CONFIG.curfew || { normal: 1290, far: 1320, farKm: 12 };
-    day.curfewLimit = seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= CFc.farKm) ? CFc.far : CFc.normal;
+    // 先估當天門禁（有設才算；有遠程景點就放寬），供插入位置判斷用
+    day.curfewLimit = CURFEW_ON ? (seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= (CF.farKm || 20)) ? CF.far : CF.normal) : null;
 
     // 正餐與「手動指定」的項目固定在時段順序上，其餘才依地理位置彈性安插
     // （手動指定若也走彈性插入，算出的時間超過該時段上限就會被丟回備選＝推翻使用者的決定）
@@ -787,7 +795,7 @@
     }
     if (!ok.length) return false;                  // 這天真的塞不進營業時間 → 交給呼叫端誠實移出
     // 先看有沒有「能準時回飯店」的排法，有的話只在這些位置裡比繞路
-    const CFL = day.key === 'd5' ? (flightInfo().ibDep - 190) : (day.curfewLimit || (CONFIG.curfew || {}).normal || 1290);
+    const CFL = dayLimit(day);
     const inTime = ok.filter(c => c.back && c.back <= CFL);
     const pool = inTime.length ? inTime : ok;
     // 先比「要等出爐多久」（20 分為一級，小差距視為同級），同級再比繞路
@@ -799,23 +807,24 @@
   const P2 = (st, day) => posOfStop(st, day);
 
   /* ---- 回飯店門禁 ----
-     每天都要在 21:30 前回到飯店；當天有跑到 12 公里外的遠程景點才放寬到 22:00。
-     超過就把最後面、且最不影響行程的停靠點移出來，改列同區備選。 */
+     有設門禁（CONFIG.curfew.normal）才會修剪：超過就把最後面、最不影響行程的停靠點移出來改列備選。
+     沒設門禁（目前預設）：只有返程日受航班時間約束，其他天想排多晚都行。 */
   function enforceCurfew(day) {
-    const CF = CONFIG.curfew || { normal: 1290, far: 1320, farKm: 12 };
     const D5_BACK = flightInfo().ibDep - 190; // 起飛前約 3 小時 10 分要回到飯店領行李（依航班自動推算）
+    if (day.key !== 'd5' && !CURFEW_ON) {
+      day.farDay = day.seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= (CF.farKm || 20));
+      day.curfew = null;
+      computeTimeline(day);
+      return;
+    }
 
     for (let guard = 0; guard < 20; guard++) {
       computeTimeline(day);
-      let limit;
-      if (day.key === 'd5') {
-        limit = D5_BACK;
-      } else {
-        const far = day.seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= CF.farKm);
-        limit = far ? CF.far : CF.normal;
-        day.curfew = limit;
-        day.farDay = far;
+      if (day.key !== 'd5') {
+        day.farDay = day.seq.some(st => havKm(HOTEL, posOfStop(st, day)) >= (CF.farKm || 20));
+        day.curfew = day.farDay ? CF.far : CF.normal;
       }
+      const limit = day.key === 'd5' ? D5_BACK : day.curfew;
       const hotelRow = day.tl.filter(r => r.k === 'hotel').pop();
       const back = hotelRow ? hotelRow.t : null;
       if (back == null || back <= limit || !day.seq.length) break;
@@ -925,7 +934,12 @@
     if (day.key === 'd5') {
       rows.push({ k: 'fixed', t: '08:30', text: '🧳 整理行李・辦理退房', sub: '行李寄放櫃台，採買完回飯店領取' });
     }
-    day.charter = !!((CLUSTERS[day.cluster] || {}).charter) && day.seq.length > 0;
+    // 包車日：只有真的要跑到飯店圈外才需要包車；整天都在飯店附近（例如只剩回飯店圈的晚餐）就不包
+    day.charter = !!((CLUSTERS[day.cluster] || {}).charter) && day.seq.some(st => !isHomePos(posOfStop(st, day)));
+    // 回到飯店圈之後（從這一站起，後面全部都在飯店附近）包車就放人收工，之後改步行／計程車
+    let homeFrom = -1;
+    if (day.charter) for (let i = day.seq.length - 1; i >= 0 && isHomePos(posOfStop(day.seq[i], day)); i--) homeFrom = i;
+    day.charterEnd = null;
     if (day.charter) {
       const cst = CONFIG.charter || {};
       rows.push({ k: 'fixed', t: fmtT(cst.startMin || 510), text: `🚐 包車於飯店出發｜${charterInfo().label}`,
@@ -945,12 +959,14 @@
 
     day.seq.forEach((stop, si) => {
       const pos = posOfStop(stop, day);
-      const tr = transCalc(cur, pos, day.charter);
+      const byVan = day.charter && !(homeFrom >= 0 && si > homeFrom);
+      const tr = transCalc(cur, pos, byVan);
       const tKey = stop.slotKey || (stop.type === 'd5shop' ? 'd5shop' : null);
       let target = tKey ? SLOT_TARGET[tKey] : null;
       if (stop.type === 'd5shop' && stop.open) target = Math.max(target || 0, stop.open);
       const near = tr.mode === 'walk' && tr.mins <= 3; // 幾乎同地點，不畫交通列
       const arr0 = time + (near ? 3 : tr.mins);
+      if (day.charter && si === homeFrom) day.charterEnd = ceil5(arr0);   // 包車在這站放人、計時到此為止
       let start = ceil5(arr0);
       if (target && target > start) start = target;
       // 已預約的時段（例如膠囊列車 14:00）：以預約時間為準往前反推該幾點到
@@ -1002,7 +1018,7 @@
     });
 
     if (day.seq.length) {
-      const tr = transCalc(cur, { lat: HOTEL.lat, lng: HOTEL.lng, zone: HOTEL.zone }, day.charter);
+      const tr = transCalc(cur, { lat: HOTEL.lat, lng: HOTEL.lng, zone: HOTEL.zone }, day.charter && homeFrom < 0);
       rows.push({ k: 'trans', dep: time, arr: time + tr.mins, tr });
       transCost += tr.fare2; transMins += tr.mins; transKm += (tr.km || 0);
       modeCnt[tr.mode]++;
@@ -1042,28 +1058,45 @@
     const days = makeDays();
     days.forEach((d, i) => { d._i = i; });
 
-    /* 依勾選數量重新分配 Day2-4 的主題區域 */
-    const cnt = { north: 0, central: 0, naha: 0 };
+    /* 依勾選內容重新分配 Day2-4 的主題區域（區域勾得不均時自動調整）：
+       需求＝各區景點數（停留 ≥2 小時的大景點算 1.5）＋非飯店圈餐飲 ×0.5；飯店圈餐飲哪天都能吃、不計。
+       每個整天約能容納 4 單位（3 個景點時段＋2 頓正餐）。在 27 種「三天各排哪一區」的組合裡，
+       挑「排不進去的單位最少」的；同分時改動最少——塞得下就維持北部／中部／那霸各一天，
+       某區勾很多、另一區幾乎沒勾時，才把那天讓給勾得多的區（標示「第 2 天」）。 */
+    const isHome = it => it.kind === 'food' && isHomePos(it);
+    const demand = { north: 0, central: 0, naha: 0 };
+    const unitOf = it => it.kind === 'spot' ? ((it.stay || 60) >= 120 ? 1.5 : 1) : (isHome(it) ? 0 : 0.5);
     [...spots, ...foods].forEach(it => {
-      const cs = it.flex || [it.cluster];
-      cs.forEach(c => { if (cnt[c] !== undefined) cnt[c] += 1 / cs.length; });
+      const u = unitOf(it); if (!u) return;
+      const cs = (it.flex || [it.cluster]).filter(c => demand[c] !== undefined);
+      cs.forEach(c => { demand[c] += u / cs.length; });
     });
-    const bigOrder = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]);
     const fullDays = days.filter(d => d.full);
     const themes = { north: '北部遠征：八重岳櫻花×美麗海', central: '中部海岸：萬座毛・美國村', naha: '那霸深度：首里・賞鯨・瀨長島' };
-    // 使用者手動對調過整天 → 直接照他的安排（Day2-4）
+    const CLS = ['north', 'central', 'naha'];
     if (state.dayCl && state.dayCl.length === 3) {
+      // 使用者手動對調過整天 → 直接照他的安排（Day2-4）
       fullDays.forEach((d, i) => { if (CLUSTERS[state.dayCl[i]]) d.cluster = state.dayCl[i]; });
+    } else {
+      const CAP = 4, base = fullDays.map(d => d.cluster);
+      let best = null;
+      CLS.forEach(x => CLS.forEach(y => CLS.forEach(z => {
+        const as = [x, y, z], dayCnt = { north: 0, central: 0, naha: 0 };
+        as.forEach(c => { dayCnt[c]++; });
+        let stranded = 0;
+        CLS.forEach(c => { stranded += Math.max(0, demand[c] - dayCnt[c] * CAP); });
+        const changes = as.filter((c, i) => c !== base[i]).length;
+        const score = stranded * 10 + changes;
+        if (!best || score < best.score) best = { as, score };
+      })));
+      fullDays.forEach((d, i) => { d.repurposed = best.as[i] !== d.cluster; d.cluster = best.as[i]; });
     }
+    // 主題標籤：同區排 2 天以上就標第幾天
+    const seen = {}, nth = {};
+    fullDays.forEach(d => { seen[d.cluster] = (seen[d.cluster] || 0) + 1; });
     fullDays.forEach(d => {
-      if (state.dayCl) { d.theme = themes[d.cluster]; return; }   // 手動指定就不再自動改派
-      if (cnt[d.cluster] === 0 && cnt[bigOrder[0]] >= 6) {
-        d.cluster = bigOrder[0];
-        d.theme = themes[bigOrder[0]] + '（續）';
-        d.repurposed = true;
-      } else {
-        d.theme = themes[d.cluster];
-      }
+      nth[d.cluster] = (nth[d.cluster] || 0) + 1;
+      d.theme = themes[d.cluster] + (seen[d.cluster] > 1 ? '（第 ' + nth[d.cluster] + ' 天）' : '');
     });
 
     // 建 slot 容器
@@ -1073,23 +1106,36 @@
       d.backup = [];
     });
 
-    const daysByCluster = c => days.filter(d => d.cluster === c);
-
-    function tryPlace(item, prefSlots, clusters) {
+    const fillCnt = d => d.slotKeys.filter(k => d.slots[k]).length;
+    /* 同一區有好幾天時，這個項目該放哪一天？
+       餐飲 → 離那天已排景點最近的那天（午餐跟著當天動線走）；景點 → 目前排得最少的那天（分攤、別把一天塞爆） */
+    const daysFor = (item, c) => {
+      const ds = days.filter(d => d.cluster === c);
+      if (ds.length < 2) return ds;
+      if (item.kind === 'food') return ds.slice().sort((p, q) => {
+        const pp = dayPoints(p), pq = dayPoints(q);
+        const kp = pp.length ? nearestKm(pp, item) : 99, kq = pq.length ? nearestKm(pq, item) : 99;
+        return (kp - kq) || (fillCnt(p) - fillCnt(q)) || (p._i - q._i);
+      });
+      return ds.slice().sort((p, q) => (fillCnt(p) - fillCnt(q)) || (p._i - q._i));
+    };
+    function placeIn(item, prefSlots, dayList, extra) {
       const key = item.kind === 'spot' ? 'SPOT' : item.slot;
-      for (const c of clusters) {
-        for (const sk of prefSlots) {
-          for (const d of daysByCluster(c)) {
-            if (!(sk in d.slots) || d.slots[sk]) continue;
-            const acc = ACCEPT[sk] || [];
-            if (!acc.includes(key)) continue;
-            if (!slotOpen(item, sk)) continue; // 該時段店家已打烊／尚未開門
-            if (!openOnDay(item, d)) continue;  // 這天店家公休
-            d.slots[sk] = { item, suggest: false };
-            return true;
-          }
+      for (const sk of prefSlots) {
+        for (const d of dayList) {
+          if (!(sk in d.slots) || d.slots[sk]) continue;
+          const acc = ACCEPT[sk] || [];
+          if (!acc.includes(key)) continue;
+          if (!slotOpen(item, sk)) continue; // 該時段店家已打烊／尚未開門
+          if (!openOnDay(item, d)) continue;  // 這天店家公休
+          d.slots[sk] = Object.assign({ item, suggest: false }, extra || {});
+          return true;
         }
       }
+      return false;
+    }
+    function tryPlace(item, prefSlots, clusters) {
+      for (const c of clusters) if (placeIn(item, prefSlots, daysFor(item, c))) return true;
       return false;
     }
 
@@ -1128,11 +1174,46 @@
       });
 
     const unplaced = [];
+    /* 景點：同一區分到 2-3 天時，先把該區的景點依經緯度分成 k 群（k＝天數，k-means、以離飯店最遠的點起算），
+       一群占一天——東海岸（勝連・海中道路）、西海岸（讀谷・恩納）、北端（古宇利・今歸仁）各自成一天，
+       不在同一區裡來回亂跳；哪一群排哪一天：離飯店越遠的群越先 */
+    const spotDayHint = new Map();
+    const kGroups = (items, k) => {
+      const kx = Math.cos(26.3 * Math.PI / 180);
+      const pts = items.map(it => ({ x: it.lng * kx, y: it.lat, it }));
+      const d2 = (p, c) => (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+      let centers = [pts.slice().sort((p, q) => havKm(HOTEL, q.it) - havKm(HOTEL, p.it))[0]];
+      while (centers.length < k) {   // farthest-first：下一個中心取離現有中心最遠的點
+        let best = null, bd = -1;
+        pts.forEach(p => { const d = Math.min(...centers.map(c => d2(p, c))); if (d > bd) { bd = d; best = p; } });
+        if (!best || bd <= 0) break;
+        centers.push(best);
+      }
+      centers = centers.map(c => ({ x: c.x, y: c.y }));
+      let assign = pts.map(() => 0);
+      for (let iter = 0; iter < 12; iter++) {
+        assign = pts.map(p => { let bi = 0, bd = Infinity; centers.forEach((c, i) => { const d = d2(p, c); if (d < bd) { bd = d; bi = i; } }); return bi; });
+        centers = centers.map((c, i) => { const m = pts.filter((p, j) => assign[j] === i); return m.length ? { x: m.reduce((s, p) => s + p.x, 0) / m.length, y: m.reduce((s, p) => s + p.y, 0) / m.length } : c; });
+      }
+      // 群的順序：離飯店越遠越先（遠征日在前，不影響使用者換天）
+      const order = centers.map((c, i) => ({ i, km: havKm(HOTEL, { lat: c.y, lng: c.x / kx }) })).sort((p, q) => q.km - p.km).map(o => o.i);
+      return pts.map((p, j) => order.indexOf(assign[j]));
+    };
+    CLS.forEach(c => {
+      const ds = days.filter(d => d.cluster === c);
+      if (ds.length < 2) return;
+      const list = spots.filter(it => !pinnedIds.has(it.id) && (it.flex || [it.cluster])[0] === c);
+      if (list.length < 2) return;
+      const g = kGroups(list, Math.min(ds.length, list.length));
+      list.forEach((it, i) => spotDayHint.set(it.id, ds[Math.min(ds.length - 1, g[i])]));
+    });
     // 先放景點（slot 較稀缺）
     spots.forEach(it => {
       if (pinnedIds.has(it.id)) return;
-      const clusters = it.flex || [it.cluster];
-      if (!tryPlace(it, SPOT_PREF[it.slot] || SPOT_PREF.afternoon, clusters)) unplaced.push(it);
+      const pref = SPOT_PREF[it.slot] || SPOT_PREF.afternoon;
+      const hint = spotDayHint.get(it.id);
+      if (hint && placeIn(it, pref, [hint])) return;
+      if (!tryPlace(it, pref, it.flex || [it.cluster])) unplaced.push(it);
     });
     // 再放餐飲：固定區域者先、彈性（多分店）者後
     const fixedFoods = foods.filter(f => !f.flex && !pinnedIds.has(f.id));
@@ -1141,9 +1222,37 @@
       const clusters = it.flex || [it.cluster];
       if (!tryPlace(it, FOOD_PREF[it.slot] || FOOD_PREF.meal, clusters)) unplaced.push(it);
     });
-    // 放不進去的 → 掛到主區域日的備選
+    /* 飯店圈餐飲（離飯店 ≤ homeKm）不受區域日限制：勾了好幾家國際通餐廳，就代表晚上想回飯店附近吃——
+       排不進自己區域日的，平均分到其他天的晚餐／宵夜／甜點時段（北部・中部包車日傍晚回那霸後再吃）。
+       只用傍晚以後的時段（午餐不可能從北部跑回那霸）；先填「還沒有晚餐」的日子，讓每天晚上都有得吃。 */
+    const HOME_SLOTS = {
+      dinner: ['dinner', 'd1dinner'], meal: ['dinner', 'd1dinner'], lunch: ['dinner', 'd1dinner'],
+      supper: ['night', 'd1night'], dessert: ['sweet', 'night', 'd1night', 'pmcafe'], snack: ['sweet', 'night', 'd1night'],
+      cafe: ['pmcafe', 'cafe', 'sweet'], brunch: ['brunch', 'd5brunch']
+    };
+    const EVE_KEYS = ['dinner', 'd1dinner', 'night', 'd1night', 'sweet', 'pmcafe', 'cafe'];
+    const eveLoad = d => EVE_KEYS.filter(k => d.slots[k] && d.slots[k].item).length;
+    const hasDinner = d => ['dinner', 'd1dinner'].some(k => d.slots[k] && d.slots[k].item) ? 1 : 0;
+    const stillUnplaced = [];
     unplaced.forEach(it => {
-      const home = daysByCluster((it.flex || [it.cluster])[0])[0] || days[0];
+      const cands = isHome(it) ? HOME_SLOTS[it.slot] : null;
+      if (cands) {
+        const order = days.slice().sort((p, q) => (hasDinner(p) - hasDinner(q)) || (eveLoad(p) - eveLoad(q)) || (p._i - q._i));
+        // 包車日的早餐不回飯店圈吃（會卡住包車出發），其餘時段都可以
+        const list = it.slot === 'brunch' ? order.filter(d => !(CLUSTERS[d.cluster] || {}).charter) : order;
+        if (placeIn(it, cands, list, { home: true })) return;
+      }
+      stillUnplaced.push(it);
+    });
+    /* 離飯店不遠的景點（≤ 8 公里）排不進自己的區域日 → 抵達日下午／晚上還有空就排進去，別白白浪費第一天 */
+    const unplaced2 = [];
+    stillUnplaced.forEach(it => {
+      if (it.kind === 'spot' && havKm(HOTEL, it) <= 8 && placeIn(it, ['pmstroll', 'd1night'], [days[0]])) return;
+      unplaced2.push(it);
+    });
+    // 放不進去的 → 掛到主區域日的備選
+    unplaced2.forEach(it => {
+      const home = days.filter(d => d.cluster === (it.flex || [it.cluster])[0])[0] || days[0];
       home.backup.push(it);
     });
 
@@ -1310,7 +1419,7 @@
           if (!insertFlexible(d, stop)) { d.slots[slotKey] = null; return; }
           computeTimeline(d);
           const hotelRow = d.tl.filter(r => r.k === 'hotel').pop();
-          if (hotelRow && hotelRow.t > (d.curfew || 1290) + 30) {
+          if (hotelRow && hotelRow.t > dayLimit(d) + 30) {
             d.seq = backup; d.slots[slotKey] = null; computeTimeline(d);
           } else {
             suggested2.add(cand[0].id);
@@ -1323,7 +1432,7 @@
     /* 修剪後若還有餘裕，把備選裡塞得回去的補回來，別浪費空檔 */
     days.forEach(d => {
       if (d.key === 'd5' || !d.trimmed || !d.trimmed.length) return;
-      const limit = d.curfew || (CONFIG.curfew || {}).normal || 1290;
+      const limit = dayLimit(d);
       d.trimmed
         .slice()
         .sort((a, b) => {
@@ -1368,7 +1477,7 @@
           const near = (it.flex || [it.cluster]).indexOf(dd.cluster) >= 0;
           const extra = Math.round(km * 2 * 3 + (it.stay || 60));  // 每公里約3分鐘來回
           const back = (dd.tl || []).filter(r => r.k === 'hotel').pop();
-          const room = (dd.curfew || 1290) - (back ? back.t : 1290);
+          const room = dayLimit(dd) - (back ? back.t : 1290);
           // 沒空位或會超時 → 仍然可以排，但會擠掉當天某一項
           return { i, km, near, fits: hasSlot && extra <= room + 20 };
         }).filter(Boolean)
@@ -1778,7 +1887,8 @@
     }
     if (r.k === 'hotel') {
       const cf = r.curfew;
-      const cfNote = (!r.pickup && cf) ? `<div class="e-meta sub">${r.t <= cf ? `✅ ${fmtT(cf)} 前到家（${cf === (CONFIG.curfew || {}).far ? '遠程日放寬標準' : '一般日標準'}）` : `⚠️ 比預定的 ${fmtT(cf)} 晚了 ${durTxt(r.t - cf)}${r.soft ? '——為了保留重點行程與晚餐，沒有再刪東西' : ''}`}</div>` : '';
+      const cfNote = (!r.pickup && cf) ? `<div class="e-meta sub">${r.t <= cf ? `✅ ${fmtT(cf)} 前到家（${cf === (CONFIG.curfew || {}).far ? '遠程日放寬標準' : '一般日標準'}）` : `⚠️ 比預定的 ${fmtT(cf)} 晚了 ${durTxt(r.t - cf)}${r.soft ? '——為了保留重點行程與晚餐，沒有再刪東西' : ''}`}</div>`
+        : (!r.pickup && r.t > 1380) ? `<div class="e-meta sub">🌙 今晚 ${fmtT(r.t)} 才回到飯店——長輩若吃不消，可用上方「調整」列把最後一站移除或搬到別天</div>` : '';
       // 晚上叫車回飯店是最常用到地址的時候：這一列直接放飯店地址複製鈕與 Uber 直達
       return entryHtml(fmtT(r.t), '返回', `<div class="e-name">${r.pickup ? '🏨 回飯店領行李，整理後前往機場' : '🏨 回到飯店，今日行程結束'}</div>${cfNote}${hotelAddrRow()}`, 'fixed hotelend');
     }
@@ -1835,6 +1945,7 @@
     return entryHtml(fmtT(r.t), label, `
       <div class="e-name">${ci.icon} ${esc(it.name)}
         ${cell.pinned ? '<span class="badge pin">📌 手動指定</span>' : ''}
+        ${cell.home ? '<span class="badge free">🏨 回飯店附近吃</span>' : ''}
         ${cell.suggest ? '<span class="badge sug">推薦補位・未勾選</span>' : ''}
         ${it.tag ? `<span class="badge tag">${esc(it.tag)}</span>` : ''}
         <span class="stay">⏳ 停留約${durTxt(r.stay)}</span></div>
@@ -2143,7 +2254,7 @@
       d._idx = i;
       const rows = d.tl.map(r => rowHtml(r, d)).join('');
       const backup = d.backup.length ? `
-        <div class="backup"><b>⏸ 同區備選${d.overflow ? `（為了在 ${fmtT(d.curfew || 1290)} 前回到飯店，以下排不進去——想去的話建議換掉上面某一站，或移到別天）` : '（時間排不下，可自行替換）'}</b>${d.backup.map(it => {
+        <div class="backup"><b>⏸ 同區備選${d.overflow ? (d.curfew ? `（為了在 ${fmtT(d.curfew)} 前回到飯店，以下排不進去——想去的話建議換掉上面某一站，或移到別天）` : '（當天時段排不下，以下列為備選——想去可換掉上面某一站，或移到別天）') : '（時間排不下，可自行替換）'}</b>${d.backup.map(it => {
           const ci = catInfo(it);
           const fit = (it._fit || []).slice(0, 3);
           const btns = fit.length
@@ -2173,11 +2284,13 @@
         const hr = (d.tl || []).filter(r => r.k === 'hotel').pop();
         const cst = CONFIG.charter || {};
         const ch = charterInfo();
-        const span = hr ? hr.t - (cst.startMin || 510) : 0;
+        const endT = d.charterEnd != null ? d.charterEnd : (hr ? hr.t : null);
+        const span = endT != null ? endT - (cst.startMin || 510) : 0;
         const over = span - (cst.baseMins || 600);
+        const endTxt = d.charterEnd != null ? `${fmtT(d.charterEnd)} 回到那霸放人，之後在飯店附近用餐步行即可` : '回到飯店';
         return `<div class="tip">🚐 <b>本日全程包車：</b>${esc(ch.label)}｜費用${esc(ch.costTxt)}。${over > 0
-          ? `⚠️ 行程試算全程約${durTxt(span)}（回到飯店），超過 10 小時基準約${durTxt(over)}——${esc(cst.overTxt || '')}；想省超時費可刪掉一站，或把晚餐改回那霸市區。`
-          : `行程試算全程約${durTxt(span)}，在 10 小時基準內。`}中文司機檔期熱門，請提前 2-3 個月預訂。</div>`;
+          ? `⚠️ 行程試算全程約${durTxt(span)}（${endTxt}），超過 10 小時基準約${durTxt(over)}——${esc(cst.overTxt || '')}；想省超時費可刪掉一站，或把晚餐改回那霸市區。`
+          : `行程試算全程約${durTxt(span)}（${endTxt}），在 10 小時基準內。`}中文司機檔期熱門，請提前 2-3 個月預訂。</div>`;
       })() : '';
       const squeezeTip = d.squeeze ? `<div class="tip holiday">⚠️ 離場前時間較緊：建議把部分採買或用餐提前，或改到機場解決。</div>` : '';
       const ordTip = state.ord[i] ? `<div class="tip">🔒 <b>本日順序已手動固定</b>——系統只重算時間與交通，不會重排你定的先後；晚開門店家自動分流等「新加入的站」若塞不下仍會退回採購清單。<button class="ed" data-dayauto="${i}" style="margin-left:6px">↩ 這天改回自動排序</button></div>` : '';
