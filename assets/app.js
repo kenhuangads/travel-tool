@@ -540,6 +540,8 @@
       if (d1SlotDead(day, slotKey)) return false;
       t = Math.max(t, day.startMin);
     }
+    // 填了預約時間就以它比對營業時間；預約早於開門（07:40 vs 08:30 開館）則以開門時間算，別誤判成沒開
+    if (state.at[item.id] != null) t = Math.max(state.at[item.id], item.open != null ? item.open : 0);
     if (item.close != null && t + 30 > item.close) return false;
     if (item.open != null && t < item.open) return false;
     return true;
@@ -597,13 +599,18 @@
   const isLightMeal = it => isRealMeal(it) && (it.stay || 60) < (CONFIG.lightMealStay || 40);
 
   const isMealStop = st => st.type === 'cell' && st.cell && st.cell.item && MEAL_SLOTS.indexOf(st.slotKey) >= 0;
-  function timingOk(tl) {
-    return tl.every(r => {
-      if (r.k !== 'item' || !r.slotKey) return true;
+  // 有幾站被擠出它該有的時段？使用者自己填了預約時間的站不算（那是他要的時間，例如 18:00 的晚餐）
+  function slotViolations(tl) {
+    return tl.filter(r => {
+      if (r.k !== 'item' || !r.slotKey) return false;
+      if (r.cell && r.cell.item && state.at[r.cell.item.id] != null) return false;
       const latest = SLOT_LATEST[r.slotKey];
-      return latest == null || r.t <= latest;
-    });
+      return latest != null && r.t > latest;
+    }).length;
   }
+  function timingOk(tl) { return slotViolations(tl) === 0; }
+  // 有預約時間的站總共遲到幾分鐘（插入新站時不得增加）
+  const atLateness = tl => tl.reduce((s, r) => s + ((r.k === 'item' && r.at && r.at.late) ? r.at.short : 0), 0);
 
   // 某天已排入項目的座標 → 供「距離感知」的補位推薦與路線最佳化
   function dayPoints(day) {
@@ -644,6 +651,16 @@
     dessert: ['sweet', 'pmcafe', 'cafe', 'night', 'd1night'],
     snack: ['sweet', 'night', 'd1night', 'latelunch'],
     supper: ['night', 'd1night']
+  };
+
+  // 填了預約時間的項目，依那個時間決定該放哪類時段（18:00 的餐廳是晚餐、13:00 的景點是下午）
+  const atPref = it => {
+    const at = state.at[it.id];
+    if (at == null) return null;
+    if (it.kind === 'spot') return at < 690 ? SPOT_PREF.morning : at < 1020 ? SPOT_PREF.afternoon : SPOT_PREF.evening;
+    if (['cafe', 'dessert', 'snack'].indexOf(it.slot) >= 0) return null;
+    if (it.slot === 'supper') return FOOD_PREF.supper;
+    return at < 630 ? FOOD_PREF.brunch : at < 960 ? FOOD_PREF.lunch : FOOD_PREF.dinner;
   };
 
   function makeDays() {
@@ -786,7 +803,7 @@
       if (!row) return null;
       const hr = tmp.tl.filter(x => x.k === 'hotel').pop();
       return { i: g.i, det: g.det, start: row.t, end: row.end,
-        meals: timingOk(tmp.tl), back: hr ? hr.t : 0,
+        viol: slotViolations(tmp.tl), late: atLateness(tmp.tl), back: hr ? hr.t : 0,
         wait: (row.batch && row.batch.wait) || 0 };   // 要乾等出爐的位置要扣分
     };
     const TRY_TOP = 8;
@@ -795,12 +812,17 @@
     const hoursOk = c =>
       (closeMin == null || c.end <= closeMin - CLOSE_BUF) &&
       (openMin == null || c.start >= openMin);
-    let ok = cand.filter(c => c.meals && hoursOk(c) && c.start <= 1230);   // meals：不能把任何行程擠出它該有的時段
+    // 插入後不能比插入前多出「被擠出時段」的站（原本就有的違規——例如使用者把預約填在時段外——不該害所有新站都插不進去）
+    const base = { key: day.key, cluster: day.cluster, seq: seq.slice() };
+    computeTimeline(base);
+    const baseV = slotViolations(base.tl), baseLate = atLateness(base.tl);
+    // 也不能害任何「有預約時間」的站變得更遲到（例如把商店街插在 18:00 的晚餐前面）
+    let ok = cand.filter(c => c.viol <= baseV && c.late <= baseLate && hoursOk(c) && c.start <= 1230);
     // 門市的放寬輪：與其被丟到打烊後的死時間，不如掃「全部」位置、
     // 拿掉 20:30 上限（營業時間硬條件仍在），找出真正逛得到的排法
     if (!ok.length && store) {
       const all = geo.map(evalPos).filter(Boolean);
-      ok = all.filter(c => c.meals && hoursOk(c));
+      ok = all.filter(c => c.viol <= baseV && c.late <= baseLate && hoursOk(c));
     }
     if (!ok.length) return false;                  // 這天真的塞不進營業時間 → 交給呼叫端誠實移出
     // 先看有沒有「能準時回飯店」的排法，有的話只在這些位置裡比繞路
@@ -1196,8 +1218,8 @@
         const d = days[pin.d];
         if (!d) return;
         const key = it.kind === 'spot' ? 'SPOT' : it.slot;
-        const pref = it.kind === 'spot' ? (SPOT_PREF[it.slot] || SPOT_PREF.afternoon)
-                                        : (FOOD_PREF[it.slot] || FOOD_PREF.meal);
+        const pref = atPref(it) || (it.kind === 'spot' ? (SPOT_PREF[it.slot] || SPOT_PREF.afternoon)
+                                        : (FOOD_PREF[it.slot] || FOOD_PREF.meal));
         // 指定時段最優先；被佔走時退回該型態的偏好順序，再不行就用當天任何空時段
         const put = sk => {
           if (!(sk in d.slots) || d.slots[sk] || sk === 'd5shop') return false;
@@ -1256,7 +1278,7 @@
     // 先放景點（slot 較稀缺）
     spots.forEach(it => {
       if (pinnedIds.has(it.id)) return;
-      const pref = SPOT_PREF[it.slot] || SPOT_PREF.afternoon;
+      const pref = atPref(it) || SPOT_PREF[it.slot] || SPOT_PREF.afternoon;
       const hint = spotDayHint.get(it.id);
       if (hint && placeIn(it, pref, [hint])) return;
       if (!tryPlace(it, pref, it.flex || [it.cluster])) unplaced.push(it);
@@ -1266,7 +1288,7 @@
     const flexFoods = foods.filter(f => f.flex && !pinnedIds.has(f.id));
     [...fixedFoods, ...flexFoods].forEach(it => {
       const clusters = it.flex || [it.cluster];
-      if (!tryPlace(it, FOOD_PREF[it.slot] || FOOD_PREF.meal, clusters)) unplaced.push(it);
+      if (!tryPlace(it, atPref(it) || FOOD_PREF[it.slot] || FOOD_PREF.meal, clusters)) unplaced.push(it);
     });
     /* 飯店圈餐飲（離飯店 ≤ homeKm）不受區域日限制：勾了好幾家國際通餐廳，就代表晚上想回飯店附近吃——
        排不進自己區域日的，平均分到其他天的晚餐／宵夜／甜點時段（北部・中部包車日傍晚回那霸後再吃）。
@@ -1591,7 +1613,7 @@
       else if (state.exSt[g.storeId]) hint = `🚫 你手動移除了這一站——想恢復就在下面選個日子改排回來｜${g.store.name}`;
       else if (g.closedDay) hint = `⚠️ 這趟排不到（該店在對應行程日公休）｜${g.store.name}`;
       else if (di >= 0) hint = `Day ${di + 1} ${g.pinnedStore ? '手動指定採買' : '順路採買'}｜${g.store.name}`;
-      else if (g.trimmedOut && g.pinnedStore) hint = `⚠️ 你指定的 Day ${((state.stPins[g.storeId] || {}).d || 0) + 1} 塞不進這間店的營業時間，請改指定別天｜${g.store.name}`;
+      else if (g.trimmedOut && g.pinnedStore) hint = `⚠️ 你指定的 Day ${((state.stPins[g.storeId] || {}).d || 0) + 1} 塞不進這間店的營業時間或當天動線，請改指定別天｜${g.store.name}`;
       else if (g.trimmedOut) hint = `⚠️ 對應日塞不下（營業時間或回飯店門禁排不進去），想買請改指定別天｜${g.store.name}`;
       else if (cl === 'kokusai' && wantD1(g)) hint = `Day 1 順路採買（${g.store.d1 ? '需要製作時間，離場前排不下' : '該店返程日公休或中午後才開門'}）｜${g.store.name}`;
       else if (cl === 'kokusai') hint = 'Day 5 上午集中採買（可提前 Day 1 傍晚）｜' + g.store.name;
