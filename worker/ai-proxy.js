@@ -54,12 +54,14 @@ export default {
     if (limitMsg) return json({ ok: false, error: limitMsg }, 429, cors);
 
     const primary = cfg(env, 'PROVIDER') === 'anthropic' && env.ANTHROPIC_KEY ? 'anthropic' : 'gemini';
-    let r = primary === 'gemini' ? await askGemini(env, sys, msgs) : await askAnthropic(env, sys, msgs);
+    const tried = [];   // 中途失敗的嘗試（模型：原因）——回給網頁當備註，也印到 Cloudflare 的即時記錄
+    let r = primary === 'gemini' ? await askGemini(env, sys, msgs, tried) : await askAnthropic(env, sys, msgs, tried);
     if (!r.ok && r.retryable) {   // 主要供應商額度用完／當機 → 換另一個（有 key 才會）
-      if (primary === 'gemini' && env.ANTHROPIC_KEY) r = await askAnthropic(env, sys, msgs);
-      else if (primary === 'anthropic' && env.GEMINI_KEY) r = await askGemini(env, sys, msgs);
+      if (primary === 'gemini' && env.ANTHROPIC_KEY) r = await askAnthropic(env, sys, msgs, tried);
+      else if (primary === 'anthropic' && env.GEMINI_KEY) r = await askGemini(env, sys, msgs, tried);
     }
-    if (r.ok) return json({ ok: true, text: r.text, provider: r.provider, model: r.model }, 200, cors);
+    if (tried.length) console.log('[oki-helper-ai] fallback:', tried.join(' | '), '→', r.ok ? r.model : 'FAILED');
+    if (r.ok) return json({ ok: true, text: r.text, provider: r.provider, model: r.model, note: tried.length ? `（${tried.join('；')}，改用 ${r.model}）` : '' }, 200, cors);
     return json({ ok: false, error: r.error }, r.status || 502, cors);
   }
 };
@@ -108,7 +110,7 @@ function thinkingLevel(env, model) {
   if (!/^gemini-3/.test(model)) return '';
   return /lite/.test(model) ? 'minimal' : 'low';
 }
-async function askGemini(env, sys, msgs) {
+async function askGemini(env, sys, msgs, tried) {
   if (!env.GEMINI_KEY) return { ok: false, error: 'Worker 還沒設定 GEMINI_KEY', status: 500 };
   const models = list(cfg(env, 'GEMINI_MODELS'));
   const base = {
@@ -145,12 +147,13 @@ async function askGemini(env, sys, msgs) {
       break;
     }
     if (last && !last.retryable) return last;
+    if (last && tried) tried.push(last.error.replace(/：.*$/, ''));
   }
   return last || { ok: false, error: '沒有設定任何 Gemini 模型', status: 500 };
 }
 
 /* ---------- Claude（Messages API） ---------- */
-async function askAnthropic(env, sys, msgs) {
+async function askAnthropic(env, sys, msgs, tried) {
   if (!env.ANTHROPIC_KEY) return { ok: false, error: 'Worker 還沒設定 ANTHROPIC_KEY', status: 500 };
   const model = cfg(env, 'ANTHROPIC_MODEL');
   let longest = 0; sys.forEach((t, i) => { if (t.length > sys[longest].length) longest = i; });
@@ -166,7 +169,9 @@ async function askAnthropic(env, sys, msgs) {
   if (!r.ok) {
     const msg = (j.error && j.error.message) || `HTTP ${r.status}`;
     const retryable = r.status === 429 || r.status === 529 || r.status >= 500;
-    return { ok: false, error: `Claude（${model}）${r.status === 401 ? 'API key 無效' : r.status === 429 ? '請求太頻繁或額度用完' : '錯誤 ' + r.status}：${String(msg).slice(0, 160)}`, retryable, status: r.status === 429 ? 429 : r.status === 401 ? 500 : 502 };
+    const err = { ok: false, error: `Claude（${model}）${r.status === 401 ? 'API key 無效' : r.status === 429 ? '請求太頻繁或額度用完' : '錯誤 ' + r.status}：${String(msg).slice(0, 160)}`, retryable, status: r.status === 429 ? 429 : r.status === 401 ? 500 : 502 };
+    if (retryable && tried) tried.push(err.error.replace(/：.*$/, ''));
+    return err;
   }
   if (j.stop_reason === 'refusal') return { ok: false, error: 'Claude 拒絕回答這個問題', status: 422 };
   const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();

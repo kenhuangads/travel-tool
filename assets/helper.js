@@ -417,7 +417,7 @@
     on: () => !!(AI.key() || AI.proxy()),
     mode: () => AI.key() ? '自己的 Claude key（這支裝置直連 Anthropic）' : AI.proxy() ? '共用代理' + (localStorage.getItem('oki_ai_proxy') ? '（這支裝置自訂）' : '（網站內建）') : '未設定 AI，只用內建規則'
   };
-  const aiHtml = r => `<div class="hp-ai">${mdLite(r.text)}</div><p class="hp-tip">— ${esc(r.who || 'AI')} 依清單與行程資料回答，店家最新狀況仍以現場為準</p>`;
+  const aiHtml = r => `<div class="hp-ai">${mdLite(r.text)}</div><p class="hp-tip">— ${esc(r.who || 'AI')}${r.model ? `<small>（${esc(r.model)}${r.note ? '・' + esc(r.note) : ''}）</small>` : ''} 依清單與行程資料回答，店家最新狀況仍以現場為準</p>`;
   let dataBlockCache = null;
   function dataBlock() {
     if (dataBlockCache) return dataBlockCache;
@@ -461,7 +461,7 @@
         const r = await fetch(proxy, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ system: [facts, dataBlock(), dyn], messages }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) return { ok: false, err: (j && j.error) || `代理回應 HTTP ${r.status}` };
-        return { ok: true, text: String(j.text || ''), who: j.provider === 'anthropic' ? 'Claude' : 'Gemini' };
+        return { ok: true, text: String(j.text || ''), who: j.provider === 'anthropic' ? 'Claude' : 'Gemini', model: j.model || '', note: j.note || '' };
       } catch (e) { return { ok: false, err: '連不上 AI 代理（' + (e && e.message ? e.message.slice(0, 60) : '') + '）' }; }
     }
     const body = {

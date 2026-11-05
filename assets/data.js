@@ -7,8 +7,8 @@
 
 const CONFIG = {
   baseUrl: 'https://kenhuangads.github.io/travel-tool/',
-  build: '20261105c',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
-  ai: { proxy: '' },   // 🤖 小幫手共用 AI 代理（Cloudflare Worker 網址，部署見 worker/README.md）；空字串＝沒有 AI、只用內建規則
+  build: '20261105d',   // 版本標示：手機看到的號碼跟這裡不同就是載到舊版（重新整理即可）
+  ai: { proxy: 'https://oki-helper-ai.kenhuangads.workers.dev' },   // 🤖 小幫手共用 AI 代理（Cloudflare Worker 網址，部署見 worker/README.md）；空字串＝沒有 AI、只用內建規則
   rateNote: '價格換算基準：100日圓 ≈ NT$21（2026年中匯率概估）。所有金額為估算平均範圍，實際以現場與當日匯率為準。',
   minSpots: 3,
   minFoods: 6,
