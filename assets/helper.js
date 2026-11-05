@@ -3,8 +3,9 @@
    用文字或語音提問，直接以「行程＋清單資料」就地回答：
    附近替代餐廳／現在有開的店／今天行程與下一站／怎麼去／營業時間／
    推薦點法／地址電話下車點／回飯店叫車／單軌票券／雨天備案…
-   內建規則引擎離線可用（不需 API）；另可在 ⚙️ 貼上自己的 Claude API key，
-   聽不懂的問題改交給 Claude（帶著整份清單與今天行程當上下文）。
+   內建規則引擎離線可用（不需 API）。聽不懂的問題交給 AI：預設透過共用代理
+   （worker/ai-proxy.js，Cloudflare Worker，預設問 Gemini）——家人裝置不用設定；
+   進階可在 ⚙️ 貼自己的 Claude API key 由裝置直連 Anthropic。
    依賴 app.js 暴露的 window.OKI 介面。
    ============================================================ */
 (function () {
@@ -348,13 +349,13 @@
     if (!hits.length) return null;
     return `<p>清單裡和「${esc(p.q)}」相關的項目：</p>` + hits.map(it => placeCard(it, `<div class="hp-meta sub">${esc(it.area || it.buy || '')}</div>`, !K.state.sel.has(it.id) ? `<button class="hp-btn" data-hsel="${esc(it.id)}">✚ 加入勾選</button>` : '')).join('');
   }
-  const HELP = `<p>我可以用文字或 🎤 語音回答這些事（都用你勾選的清單與行程資料）：</p>
+  const HELP = () => `<p>我可以用文字或 🎤 語音回答這些事（都用你勾選的清單與行程資料）：</p>
     <ul class="hp-ul"><li>「午餐那家排太久，附近還有什麼？」→ 以那一站為中心列出最近的餐廳，可一鍵換進行程</li>
     <li>「現在附近有開的咖啡廳」「這附近有什麼景點」→ 開啟 📍 我的位置後用 GPS 找</li>
     <li>「今天行程」「下一站怎麼去」「Day 3 晚上吃什麼」</li>
     <li>「傑克牛排現在有開嗎」「首里城怎麼去」「EIBUN 要點什麼」「琉球之牛怎麼訂位」「美麗海地址」</li>
     <li>「回飯店」「單軌要買票嗎」「包車幾點出發」「天氣」「雨天備案」「航班」「花費」</li></ul>
-    <p class="hp-tip">旅程期間會自動依今天日期與時間回答；現在可先在上方選「Day N」試算。⚙️ 裡可貼上自己的 Claude API key，聽不懂的問題會改交給 Claude 回答。</p>`;
+    <p class="hp-tip">旅程期間會自動依今天日期與時間回答；現在可先在上方選「Day N」試算。${AI.on() ? '規則聽不懂的問題會自動交給 AI 回答，規則答案下方也有「🤖 改問 AI」。' : '⚙️ 裡設定共用 AI 代理或自己的 Claude API key 後，聽不懂的問題會交給 AI 回答。'}</p>`;
 
   /* ---------- 主流程 ---------- */
   const log = [];   // { role:'user'|'bot', html, text }
@@ -377,7 +378,7 @@
     const geoNote = (p.useGeo && geoOn && !geo) ? '<p class="hp-tip">拿不到你的位置（未授權或沒有訊號），改用行程或飯店當中心。</p>' : '';
     let html = null;
     switch (p.intent) {
-      case 'help': html = HELP; break;
+      case 'help': html = HELP(); break;
       case 'thanks': html = '<p>不客氣，旅途愉快 🌺</p>'; break;
       case 'nearby': html = geoNote + answerNearby(p, geo); break;
       case 'plan': html = answerPlan(p); break;
@@ -397,21 +398,26 @@
       case 'search': html = answerSearch(p); break;
     }
     if (html) return { html, p, builtin: true };
-    // 規則引擎聽不懂：有 API key 就交給 Claude，否則給提示
-    if (AI.key()) {
-      const r = await askClaude(q, p);
-      if (r.ok) return { html: `<div class="hp-ai">${mdLite(r.text)}</div><p class="hp-tip">— Claude 依清單與行程資料回答，店家最新狀況仍以現場為準</p>`, p, ai: true, text: r.text };
-      return { html: `<p>Claude 沒有回應（${esc(r.err)}）。</p>` + HELP, p };
+    // 規則引擎聽不懂：有 AI（共用代理或自己的 key）就交給 AI，否則給提示
+    if (AI.on()) {
+      const r = await askAI(q);
+      if (r.ok) return { html: aiHtml(r), p, ai: true, text: r.text };
+      return { html: `<p>AI 沒有回應（${esc(r.err)}）。</p>` + HELP(), p };
     }
-    return { html: `<p>我不太確定你的意思，換個說法試試，或直接問下面這些：</p>` + HELP, p };
+    return { html: `<p>我不太確定你的意思，換個說法試試，或直接問下面這些：</p>` + HELP(), p };
   }
 
   /* ---------- Claude API（選用）：瀏覽器直連，key 只存在這支手機 ---------- */
   const AI = {
     key: () => localStorage.getItem('oki_ai_key') || '',
     model: () => localStorage.getItem('oki_ai_model') || 'claude-opus-5-5',
-    always: () => localStorage.getItem('oki_ai_always') === '1'
+    always: () => localStorage.getItem('oki_ai_always') === '1',
+    defProxy: () => ((CONFIG.ai && CONFIG.ai.proxy) || '').trim().replace(/\/+$/, ''),
+    proxy: () => (localStorage.getItem('oki_ai_proxy') || AI.defProxy()).trim().replace(/\/+$/, ''),
+    on: () => !!(AI.key() || AI.proxy()),
+    mode: () => AI.key() ? '自己的 Claude key（這支裝置直連 Anthropic）' : AI.proxy() ? '共用代理' + (localStorage.getItem('oki_ai_proxy') ? '（這支裝置自訂）' : '（網站內建）') : '未設定 AI，只用內建規則'
   };
+  const aiHtml = r => `<div class="hp-ai">${mdLite(r.text)}</div><p class="hp-tip">— ${esc(r.who || 'AI')} 依清單與行程資料回答，店家最新狀況仍以現場為準</p>`;
   let dataBlockCache = null;
   function dataBlock() {
     if (dataBlockCache) return dataBlockCache;
@@ -426,7 +432,7 @@
     dataBlockCache = '【清單資料（JSON）】\n' + JSON.stringify({ items, stores, hotels, zones: ZONES, clusters: CLUSTERS, transit: TRANSIT });
     return dataBlockCache;
   }
-  async function askClaude(q, p) {
+  async function askAI(q) {
     const key = AI.key();
     const model = AI.model();
     const di = dayIdx();
@@ -443,10 +449,21 @@
       if (history.length && history[history.length - 1].role === role) history[history.length - 1].content += '\n' + m.text;
       else history.push({ role, content: m.text });
     });
-    if (history.length && history[history.length - 1].role === 'user') history[history.length - 1].content += '\n' + q;
+    const lastH = history[history.length - 1];
+    if (lastH && lastH.role === 'user') { if (!lastH.content.endsWith(q)) lastH.content += '\n' + q; }
     else history.push({ role: 'user', content: q });
-    if (history[0].role !== 'user') history.shift();
+    while (history.length && history[0].role !== 'user') history.shift();
     const messages = history;
+    if (!key) {   // 共用代理（Cloudflare Worker）——key 在雲端，裝置不用設定
+      const proxy = AI.proxy();
+      if (!proxy) return { ok: false, err: '尚未設定 AI' };
+      try {
+        const r = await fetch(proxy, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ system: [facts, dataBlock(), dyn], messages }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) return { ok: false, err: (j && j.error) || `代理回應 HTTP ${r.status}` };
+        return { ok: true, text: String(j.text || ''), who: j.provider === 'anthropic' ? 'Claude' : 'Gemini' };
+      } catch (e) { return { ok: false, err: '連不上 AI 代理（' + (e && e.message ? e.message.slice(0, 60) : '') + '）' }; }
+    }
     const body = {
       model, max_tokens: 1200,
       system: [
@@ -469,7 +486,7 @@
       const j = await r.json();
       if (j.stop_reason === 'refusal') return { ok: false, err: 'Claude 拒絕回答這個問題' };
       const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-      return text ? { ok: true, text } : { ok: false, err: '空白回應' };
+      return text ? { ok: true, text, who: 'Claude' } : { ok: false, err: '空白回應' };
     } catch (e) {
       return { ok: false, err: '連不上網路或 API（' + (e && e.message ? e.message.slice(0, 60) : '') + '）' };
     }
@@ -520,10 +537,12 @@
         <button type="button" id="hpClose" title="收起">✕</button>
       </div>
       <div class="hp-set" id="hpSetBox" hidden>
-        <div class="hp-set-row"><label>Claude API key（選填）<input type="password" id="hpKey" placeholder="sk-ant-…" autocomplete="off"></label></div>
-        <div class="hp-set-row"><label>模型 <select id="hpModel"><option value="claude-opus-5-5">Claude Opus 5.5（預設）</option><option value="claude-sonnet-5-5">Claude Sonnet 5.5（較省）</option><option value="claude-haiku-5-5">Claude Haiku 5.5（最省）</option></select></label>
-          <label><input type="checkbox" id="hpAlways"> 所有問題都交給 Claude</label></div>
-        <div class="hp-tip">key 只存在這支手機的瀏覽器裡、直接連 Anthropic，不經過任何中間伺服器；每次提問會把整份清單與行程當作上下文（已啟用快取，重複提問很便宜）。沒有 key 也能用內建的規則回答。</div>
+        <div class="hp-tip" id="hpAiStat"></div>
+        <div class="hp-set-row"><label>共用 AI 代理網址<input type="text" id="hpProxy" placeholder="https://….workers.dev（網站已內建就不用填）" autocomplete="off"></label></div>
+        <div class="hp-set-row"><label>自己的 Claude API key（進階・選填）<input type="password" id="hpKey" placeholder="sk-ant-…" autocomplete="off"></label></div>
+        <div class="hp-set-row"><label>Claude 模型 <select id="hpModel"><option value="claude-opus-5-5">Claude Opus 5.5</option><option value="claude-sonnet-5-5">Claude Sonnet 5.5（較省）</option><option value="claude-haiku-5-5">Claude Haiku 5.5（最省）</option></select></label>
+          <label><input type="checkbox" id="hpAlways"> 所有問題都交給 AI</label></div>
+        <div class="hp-tip">預設透過共用代理問 Gemini（免費方案），家人不用設定、代理只接受這個網站的請求。貼自己的 Claude key 則改由這支手機直連 Anthropic，key 不會離開這支手機。沒有網路時內建規則照常可用。</div>
         <div class="hp-set-row"><button type="button" class="hp-btn go" id="hpSave">儲存</button><button type="button" class="hp-btn" id="hpClear">清除 key</button></div>
       </div>
       <div class="hp-log" id="hpLog"></div>
@@ -539,8 +558,11 @@
     $('#hpGeo').classList.toggle('on', geoOn);
     $('#hpTts').classList.toggle('on', ttsOn);
     $('#hpKey').value = AI.key(); $('#hpModel').value = AI.model(); $('#hpAlways').checked = AI.always();
+    $('#hpProxy').value = localStorage.getItem('oki_ai_proxy') || AI.defProxy();
+    const aiStat = () => { $('#hpAiStat').textContent = '目前：' + AI.mode(); };
+    aiStat();
 
-    fab.addEventListener('click', () => { box.hidden = !box.hidden; fab.classList.toggle('open', !box.hidden); if (!box.hidden) { if (!log.length) push('bot', HELP, ''); setTimeout(() => $('#hpIn').focus(), 50); } });
+    fab.addEventListener('click', () => { box.hidden = !box.hidden; fab.classList.toggle('open', !box.hidden); if (!box.hidden) { if (!log.length) push('bot', HELP(), ''); setTimeout(() => $('#hpIn').focus(), 50); } });
     $('#hpClose').addEventListener('click', () => { box.hidden = true; fab.classList.remove('open'); });
     $('#hpDay').addEventListener('change', e => { pickedDay = +e.target.value; localStorage.setItem('oki_helper_day', String(pickedDay)); });
     $('#hpGeo').addEventListener('click', async () => {
@@ -553,16 +575,21 @@
     $('#hpSave').addEventListener('click', () => {
       const k = $('#hpKey').value.trim();
       if (k && !/^sk-ant-/.test(k)) { K.toast('這看起來不是 Anthropic 的 API key（應以 sk-ant- 開頭）'); return; }
+      const px = $('#hpProxy').value.trim().replace(/\/+$/, '');
+      if (px && !/^https?:\/\//.test(px)) { K.toast('代理網址要以 https:// 開頭'); return; }
+      if (px && px !== AI.defProxy()) localStorage.setItem('oki_ai_proxy', px); else localStorage.removeItem('oki_ai_proxy');
       localStorage.setItem('oki_ai_key', k); localStorage.setItem('oki_ai_model', $('#hpModel').value); localStorage.setItem('oki_ai_always', $('#hpAlways').checked ? '1' : '0');
-      $('#hpSetBox').hidden = true; K.toast(k ? '已儲存，聽不懂的問題會交給 Claude' : '已清除 key，改用內建回答');
+      aiStat(); $('#hpSetBox').hidden = true; K.toast(AI.on() ? '已儲存：' + AI.mode() : '未設定 AI，改用內建回答');
     });
-    $('#hpClear').addEventListener('click', () => { $('#hpKey').value = ''; localStorage.removeItem('oki_ai_key'); K.toast('已清除 key'); });
+    $('#hpClear').addEventListener('click', () => { $('#hpKey').value = ''; localStorage.removeItem('oki_ai_key'); aiStat(); K.toast('已清除 key'); });
     $('#hpSend').addEventListener('click', () => submit($('#hpIn').value));
     $('#hpIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit($('#hpIn').value); } });
     $('#hpMic').addEventListener('click', startVoice);
     $('#hpChips').addEventListener('click', e => { const b = e.target.closest('.hp-chip'); if (b) submit(b.dataset.q); });
     // 回答裡的動作鈕：換店／加進行程／加入勾選
     $('#hpLog').addEventListener('click', e => {
+      const ai = e.target.closest('[data-hai]');
+      if (ai) { const q = log[+ai.dataset.hai] ? log[+ai.dataset.hai].text : ''; ai.remove(); if (q) askOnlyAI(q); return; }
       const sw = e.target.closest('[data-hswap]');
       if (sw) { const [oldId, newId, d, s] = sw.dataset.hswap.split('|'); swapStop(oldId, newId, +d, s || null); return; }
       const ad = e.target.closest('[data-hadd]');
@@ -597,6 +624,19 @@
     return el;
   }
   let busy = false;
+  async function askOnlyAI(q) {
+    if (busy) return;
+    busy = true;
+    const wait = push('bot', '<p class="hp-wait">🤖 AI 思考中…</p>', '');
+    try {
+      const r = await askAI(q);
+      wait.innerHTML = r.ok ? aiHtml(r) : `<p>AI 沒有回應（${esc(r.err)}）。</p>`;
+      log[log.length - 1].text = r.ok ? r.text : '';
+      if (r.ok) speak(r.text);
+    } catch (e) { wait.innerHTML = `<p>出了點問題：${esc(e && e.message || e)}</p>`; }
+    busy = false;
+    $('#hpLog').scrollTop = $('#hpLog').scrollHeight;
+  }
   async function submit(q) {
     q = String(q || '').trim();
     if (!q || busy) return;
@@ -606,11 +646,11 @@
     const wait = push('bot', '<p class="hp-wait">思考中…</p>', '');
     try {
       let r;
-      if (AI.key() && AI.always()) {
-        const p = parse(q);
-        const ai = await askClaude(q, p);
-        r = ai.ok ? { html: `<div class="hp-ai">${mdLite(ai.text)}</div><p class="hp-tip">— Claude 依清單與行程資料回答，店家最新狀況仍以現場為準</p>`, text: ai.text } : await answer(q);
+      if (AI.on() && AI.always()) {
+        const ai = await askAI(q);
+        r = ai.ok ? { html: aiHtml(ai), text: ai.text } : await answer(q);
       } else r = await answer(q);
+      if (r.builtin && AI.on() && r.p && ['help', 'thanks'].indexOf(r.p.intent) < 0) r.html += `<div class="hp-act"><button type="button" class="hp-btn" data-hai="${log.length - 2}">🤖 不是你要的？改問 AI</button></div>`;
       wait.innerHTML = r.html;
       log[log.length - 1].text = r.text || wait.innerText.slice(0, 600);
       speak(r.text || wait.innerText);

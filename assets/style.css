@@ -677,7 +677,7 @@ details.unp-wrap > summary { margin-bottom: 0; }
 .hp-set { padding: 10px 12px; background: #f2f7ff; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .hp-set-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 6px; }
 .hp-set-row label { display: inline-flex; align-items: center; gap: 6px; }
-.hp-set-row input[type=password] { width: 220px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 13px; }
+.hp-set-row input[type=password], .hp-set-row input[type=text] { width: 220px; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 13px; }
 .hp-set-row select { border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 12.5px; }
 .hp-log { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-height: 160px; -webkit-overflow-scrolling: touch; }
 .hp-msg { max-width: 94%; border-radius: 12px; padding: 8px 11px; font-size: 13.5px; line-height: 1.6; }

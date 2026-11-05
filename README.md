@@ -38,7 +38,7 @@
 - 「現在附近有開的咖啡廳」「這附近有什麼景點」→ 開啟 📍 後以手機 GPS 為中心；沒訊號就退回行程中的那一站或飯店。
 - 也能問：「今天行程」「下一站怎麼去」「Day 3 晚上吃什麼」「首里城怎麼去」「傑克牛排現在有開嗎」「EIBUN 要點什麼」「琉球之牛怎麼訂位」「美麗海地址」「回飯店」「單軌要買票嗎」「包車幾點出發」「天氣」「雨天備案」「航班」「花費」。
 - 旅程期間（2027/1/20–24）自動依日期與時間回答；出發前可在面板上方選 Day N 試算。🔊 可朗讀回答。語音輸入需 Safari（iPhone）或 Chrome（Android），且需要網路。
-- ⚙️ 可貼上自己的 Claude API key（只存在該裝置的瀏覽器、直連 Anthropic）：規則引擎聽不懂的問題改交給 Claude，帶著整份清單與行程當上下文（已啟用提示快取）；也可勾「所有問題都交給 Claude」。
+- 規則聽不懂的問題交給 AI，規則答案下方也有「🤖 改問 AI」：預設透過共用代理（[worker/](worker/README.md)，Cloudflare Worker 免費方案）問 **Gemini**（Google AI Studio 免費方案），key 放在雲端、家人裝置不用設定；代理也能接 Claude 當備援或主力。進階：⚙️ 可貼自己的 Claude API key 由該裝置直連 Anthropic（key 不離開裝置、已啟用提示快取）；可勾「所有問題都交給 AI」。
 
 ## 其他功能
 
@@ -58,7 +58,7 @@
 
 ## 維護
 
-- 純靜態網站：`index.html`＋`savelist.html`＋`assets/`（`data.js` 資料、`app.js` 排程與畫面、`helper.js` 小幫手、`style.css`）。勾選狀態存 localStorage，行程可由網址參數還原。`app.js` 以 `window.OKI` 暴露資料、距離／交通試算、行程與重排介面給 `helper.js`。
+- 純靜態網站：`index.html`＋`savelist.html`＋`assets/`（`data.js` 資料、`app.js` 排程與畫面、`helper.js` 小幫手、`style.css`）＋`worker/`（小幫手的 AI 代理，部署在 Cloudflare Workers）。勾選狀態存 localStorage，行程可由網址參數還原。`app.js` 以 `window.OKI` 暴露資料、距離／交通試算、行程與重排介面給 `helper.js`。
 - **每次改動都要同步改版本號**：`data.js` 的 `CONFIG.build`、`index.html` 的四個 `?v=`、`savelist.html` 的一個 `?v=`。
 - **出發前複核**：`node tools/audit_places.js`——逐一比對座標、Google place id、歇業狀態與每週營業時間，只列出有出入的項目（`--refresh` 重抓、`--only s01,f17` 指定項目）。目前列出的差異多為季節性營業時間或刻意保守的時段，改資料前請再以官網確認。
 - push 到 `main` 即由 GitHub Pages 自動部署。
