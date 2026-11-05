@@ -3306,5 +3306,15 @@
     renderHeroCards();
     if (shared && ready()) showResult();
   }
+  /* ---------- 小幫手（assets/helper.js）用的引擎介面 ----------
+     只暴露讀取與「重排」入口；狀態仍由 app.js 管理，helper 改完 state 一律呼叫 reflow() 重算 */
+  window.OKI = {
+    state, DB, ALL, HOTEL_LIST, SLOT_LABELS, DOW_TXT,
+    hotelInfo, flightInfo, PARTY, cabInfo, charterInfo,
+    transCalc, havKm, fmtT, durTxt, kmTxt, money, esc,
+    imgQ, catInfo, linkRow, posOfItem, posOfStore, orderHtml, planText,
+    plan: () => lastPlan, ready, reflow, save, toast,
+    refreshPick: () => { renderChips(); renderGrid(); renderBar(); renderTools(); }
+  };
   document.addEventListener('DOMContentLoaded', init);
 })();
